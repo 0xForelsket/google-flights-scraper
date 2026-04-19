@@ -1,6 +1,6 @@
-# flight-scraper-core
+# google-flights-scraper
 
-`flight-scraper-core` is a small Node.js library for Google Flights scraping.
+`google-flights-scraper` is a small Node.js library for Google Flights scraping.
 
 It does three things:
 
@@ -19,7 +19,7 @@ This package is meant to be the core you build on top of, whether that is:
 ## Install
 
 ```bash
-npm install flight-scraper-core
+npm install google-flights-scraper
 ```
 
 ## Requirements
@@ -32,7 +32,7 @@ This package uses native `fetch` and targets Node, not the browser.
 ## Quick Start
 
 ```ts
-import { createQuery, fetchFlights } from "flight-scraper-core";
+import { createQuery, fetchFlights } from "google-flights-scraper";
 
 const query = createQuery({
   flights: [
@@ -85,7 +85,7 @@ Each `FlightResult` includes:
 ### Structured Query
 
 ```ts
-import { createQuery, buildSearchUrl } from "flight-scraper-core";
+import { createQuery, buildSearchUrl } from "google-flights-scraper";
 
 const query = createQuery({
   flights: [
@@ -112,7 +112,7 @@ console.log(buildSearchUrl(query));
 If you want to let Google interpret the query itself, you can pass a string:
 
 ```ts
-import { buildSearchUrl, fetchFlights } from "flight-scraper-core";
+import { buildSearchUrl, fetchFlights } from "google-flights-scraper";
 
 const input = "Flights from Kuala Lumpur to Tokyo on 2026-05-10 one way economy";
 
@@ -126,7 +126,7 @@ const result = await fetchFlights(input);
 This is useful if you want to cache HTML, inspect it, or retry parsing separately.
 
 ```ts
-import { createQuery, fetchFlightsHtml, parseFlightsHtml } from "flight-scraper-core";
+import { createQuery, fetchFlightsHtml, parseFlightsHtml } from "google-flights-scraper";
 
 const query = createQuery({
   flights: [
@@ -147,7 +147,7 @@ const result = parseFlightsHtml(html);
 If you want custom proxying, retries, tracing, or rate limiting, pass your own `fetch`.
 
 ```ts
-import { fetchFlights } from "flight-scraper-core";
+import { fetchFlights } from "google-flights-scraper";
 
 const result = await fetchFlights("Flights from KUL to NRT on 2026-05-10", {
   fetch: async (input, init) => {

@@ -1,5 +1,5 @@
 {
-  "name": "flight-scraper-core",
+  "name": "google-flights-scraper",
   "version": "0.1.0",
   "description": "A Node.js core library for building and scraping Google Flights search queries.",
   "license": "MIT",
