@@ -3,8 +3,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { parseFlightsHtml } from "../src/parse.js";
+import { ParseFlightsError } from "../src/errors.js";
 
 describe("parseFlightsHtml", () => {
+  it("throws ParseFlightsError on a Google landing/redirect page without ds:1", () => {
+    const html = `<!doctype html><html><head><title>Google Flights</title></head><body><script>AF_initDataCallback({key: 'ds:0', data: [1,2,3], sideChannel: {}});</script></body></html>`;
+    expect(() => parseFlightsHtml(html)).toThrow(ParseFlightsError);
+  });
+
   it("parses a live ds:1 fixture into structured itineraries", () => {
     const ds1Script = readFileSync(new URL("./fixtures/kul-nrt-ds1.js", import.meta.url), "utf8");
     const html = `<html><body><script>${ds1Script}</script></body></html>`;

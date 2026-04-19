@@ -43,18 +43,65 @@ describe("createQuery", () => {
     expect(query.url.includes("curr=USD")).toBe(true);
   });
 
-  it("encodes round-trip with two segments", () => {
+  it("encodes round-trip with two segments (golden)", () => {
     const query = createQuery({
       flights: [
         { date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" },
         { date: "2026-05-20", fromAirport: "NRT", toAirport: "KUL" }
       ],
       trip: "round-trip",
-      passengers: { adults: 2 }
+      seat: "business",
+      passengers: { adults: 2, children: 1 },
+      language: "en-US",
+      currency: "USD"
     });
 
-    expect(query.tfs.length).toBeGreaterThan(0);
-    expect(query.params.get("tfs")).toBe(query.tfs);
+    expect(query.tfs).toBe(
+      "GhoSCjIwMjYtMDUtMTBqBRIDS1VMcgUSA05SVBoaEgoyMDI2LTA1LTIwagUSA05SVHIFEgNLVUxCAwEBAkgDmAEB"
+    );
+    expect(query.url).toBe(
+      "https://www.google.com/travel/flights/search?tfs=GhoSCjIwMjYtMDUtMTBqBRIDS1VMcgUSA05SVBoaEgoyMDI2LTA1LTIwagUSA05SVHIFEgNLVUxCAwEBAkgDmAEB&hl=en-US&curr=USD"
+    );
+  });
+
+  it("encodes multi-city with inherited maxStops (golden)", () => {
+    const query = createQuery({
+      flights: [
+        { date: "2026-06-01", fromAirport: "SFO", toAirport: "JFK" },
+        { date: "2026-06-05", fromAirport: "JFK", toAirport: "LHR" },
+        { date: "2026-06-12", fromAirport: "LHR", toAirport: "SFO" }
+      ],
+      trip: "multi-city",
+      seat: "premium-economy",
+      passengers: { adults: 1, infantsOnLap: 1 },
+      maxStops: 1,
+      language: "en-GB",
+      currency: "GBP"
+    });
+
+    expect(query.tfs).toBe(
+      "GhwSCjIwMjYtMDYtMDEoAWoFEgNTRk9yBRIDSkZLGhwSCjIwMjYtMDYtMDUoAWoFEgNKRktyBRIDTEhSGhwSCjIwMjYtMDYtMTIoAWoFEgNMSFJyBRIDU0ZPQgIBBEgCmAED"
+    );
+    expect(query.url).toBe(
+      "https://www.google.com/travel/flights/search?tfs=GhwSCjIwMjYtMDYtMDEoAWoFEgNTRk9yBRIDSkZLGhwSCjIwMjYtMDYtMDUoAWoFEgNKRktyBRIDTEhSGhwSCjIwMjYtMDYtMTIoAWoFEgNMSFJyBRIDU0ZPQgIBBEgCmAED&hl=en-GB&curr=GBP"
+    );
+  });
+
+  it("encodes airline-alliance filter and per-flight maxStops (golden)", () => {
+    const query = createQuery({
+      flights: [
+        {
+          date: "2026-05-10",
+          fromAirport: "KUL",
+          toAirport: "NRT",
+          airlines: ["STAR_ALLIANCE"],
+          maxStops: 0
+        }
+      ],
+      passengers: { adults: 1 }
+    });
+
+    expect(query.tfs).toBe("GisSCjIwMjYtMDUtMTAoADINU1RBUl9BTExJQU5DRWoFEgNLVUxyBRIDTlJUQgEBSAGYAQI=");
   });
 
   it("accepts a Date instance for flight date", () => {
