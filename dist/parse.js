@@ -70,6 +70,12 @@ function evaluateDs1Script(script) {
 }
 function parseSegment(rawSegment) {
     const segment = isArray(rawSegment) ? rawSegment : [];
+    const carrierInfo = isArray(segment[22]) ? segment[22] : [];
+    const operatingCarrier = toString(carrierInfo[0]);
+    const flightNumberDigits = toString(carrierInfo[1]);
+    const flightNumber = operatingCarrier !== "" && flightNumberDigits !== ""
+        ? `${operatingCarrier}${flightNumberDigits}`
+        : "";
     return {
         fromAirport: {
             code: toString(segment[3]),
@@ -88,16 +94,34 @@ function parseSegment(rawSegment) {
             time: toTime(segment[10])
         },
         durationMinutes: toNumber(segment[11]),
-        planeType: toString(segment[17])
+        planeType: toString(segment[17]),
+        operatingCarrier,
+        flightNumber,
+        legroom: toString(segment[14])
     };
 }
 function parseLayover(rawLayover) {
     const layover = isArray(rawLayover) ? rawLayover : [];
+    const arrivalCode = toString(layover[1]);
+    const onwardCode = toString(layover[2], arrivalCode);
     return {
         durationMinutes: toNumber(layover[0]),
-        airportCode: toString(layover[1]),
+        airportCode: arrivalCode,
         airportName: toString(layover[4]),
-        cityName: toString(layover[5])
+        cityName: toString(layover[5]),
+        changeOfAirport: arrivalCode !== "" && onwardCode !== "" && arrivalCode !== onwardCode
+    };
+}
+function parseCarrierLink(rawEntry) {
+    const entry = isArray(rawEntry) ? rawEntry : [];
+    const code = toString(entry[0]);
+    if (code === "") {
+        return null;
+    }
+    return {
+        code,
+        name: toString(entry[1]),
+        url: toString(entry[2])
     };
 }
 function parseFlightResult(rawItem) {
@@ -106,10 +130,15 @@ function parseFlightResult(rawItem) {
     if (!flight) {
         return null;
     }
+    const pricing = isArray(item[1]) ? item[1] : [];
     const price = readPrice(item[1]);
+    const bookingToken = toString(pricing[1]);
     const segments = isArray(flight[2]) ? flight[2].map(parseSegment) : [];
     const layovers = isArray(flight[13]) ? flight[13].map(parseLayover) : [];
     const extras = isArray(flight[22]) ? flight[22] : [];
+    const carrierLinks = (isArray(flight[24]) ? flight[24] : [])
+        .map(parseCarrierLink)
+        .filter((entry) => entry !== null);
     if (price === null || segments.length === 0) {
         return null;
     }
@@ -124,7 +153,9 @@ function parseFlightResult(rawItem) {
         carbon: {
             emission: toNumber(extras[7]),
             typicalOnRoute: toNumber(extras[8])
-        }
+        },
+        bookingToken,
+        carrierLinks
     };
 }
 function parseMetadata(payload) {

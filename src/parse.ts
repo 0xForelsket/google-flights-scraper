@@ -40,6 +40,12 @@ export interface FlightSegment {
   arrival: FlightTimestamp;
   durationMinutes: number;
   planeType: string;
+  /** IATA operating carrier code (e.g. "TR"). Empty string when Google did not expose it. */
+  operatingCarrier: string;
+  /** Combined carrier + flight number (e.g. "TR451"). Empty string when unavailable. */
+  flightNumber: string;
+  /** Human legroom string as Google renders it (e.g. "28 in"). */
+  legroom: string;
 }
 
 export interface Layover {
@@ -47,6 +53,15 @@ export interface Layover {
   airportCode: string;
   airportName: string;
   cityName: string;
+  /** True when the onward flight departs from a different airport than the arriving one. */
+  changeOfAirport: boolean;
+}
+
+export interface CarrierLink {
+  code: string;
+  name: string;
+  /** Carrier-provided URL that Google associates with this flight. May be support/accessibility rather than a direct booking page. */
+  url: string;
 }
 
 export interface CarbonEmission {
@@ -65,6 +80,10 @@ export interface FlightResult {
   stopCount: number;
   layovers: Layover[];
   carbon: CarbonEmission;
+  /** Opaque token Google re-submits to open the "Select where to book" page. Empty string when not exposed. */
+  bookingToken: string;
+  /** Per-flight carrier links as Google renders them. */
+  carrierLinks: CarrierLink[];
 }
 
 export interface FlightsSearchResult {
@@ -171,6 +190,12 @@ function evaluateDs1Script(script: string): unknown[] {
 
 function parseSegment(rawSegment: unknown): FlightSegment {
   const segment = isArray(rawSegment) ? rawSegment : [];
+  const carrierInfo = isArray(segment[22]) ? segment[22] : [];
+  const operatingCarrier = toString(carrierInfo[0]);
+  const flightNumberDigits = toString(carrierInfo[1]);
+  const flightNumber = operatingCarrier !== "" && flightNumberDigits !== ""
+    ? `${operatingCarrier}${flightNumberDigits}`
+    : "";
 
   return {
     fromAirport: {
@@ -190,18 +215,39 @@ function parseSegment(rawSegment: unknown): FlightSegment {
       time: toTime(segment[10])
     },
     durationMinutes: toNumber(segment[11]),
-    planeType: toString(segment[17])
+    planeType: toString(segment[17]),
+    operatingCarrier,
+    flightNumber,
+    legroom: toString(segment[14])
   };
 }
 
 function parseLayover(rawLayover: unknown): Layover {
   const layover = isArray(rawLayover) ? rawLayover : [];
+  const arrivalCode = toString(layover[1]);
+  const onwardCode = toString(layover[2], arrivalCode);
 
   return {
     durationMinutes: toNumber(layover[0]),
-    airportCode: toString(layover[1]),
+    airportCode: arrivalCode,
     airportName: toString(layover[4]),
-    cityName: toString(layover[5])
+    cityName: toString(layover[5]),
+    changeOfAirport: arrivalCode !== "" && onwardCode !== "" && arrivalCode !== onwardCode
+  };
+}
+
+function parseCarrierLink(rawEntry: unknown): CarrierLink | null {
+  const entry = isArray(rawEntry) ? rawEntry : [];
+  const code = toString(entry[0]);
+
+  if (code === "") {
+    return null;
+  }
+
+  return {
+    code,
+    name: toString(entry[1]),
+    url: toString(entry[2])
   };
 }
 
@@ -213,10 +259,15 @@ function parseFlightResult(rawItem: unknown): FlightResult | null {
     return null;
   }
 
+  const pricing = isArray(item[1]) ? item[1] : [];
   const price = readPrice(item[1]);
+  const bookingToken = toString(pricing[1]);
   const segments = isArray(flight[2]) ? flight[2].map(parseSegment) : [];
   const layovers = isArray(flight[13]) ? flight[13].map(parseLayover) : [];
   const extras = isArray(flight[22]) ? flight[22] : [];
+  const carrierLinks = (isArray(flight[24]) ? flight[24] : [])
+    .map(parseCarrierLink)
+    .filter((entry): entry is CarrierLink => entry !== null);
 
   if (price === null || segments.length === 0) {
     return null;
@@ -233,7 +284,9 @@ function parseFlightResult(rawItem: unknown): FlightResult | null {
     carbon: {
       emission: toNumber(extras[7]),
       typicalOnRoute: toNumber(extras[8])
-    }
+    },
+    bookingToken,
+    carrierLinks
   };
 }
 

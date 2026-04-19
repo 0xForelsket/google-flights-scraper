@@ -14,6 +14,7 @@ export {
   type AllianceMetadata,
   type Airport,
   type CarbonEmission,
+  type CarrierLink,
   type FlightResult,
   type FlightSegment,
   type FlightsSearchResult,

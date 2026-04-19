@@ -30,12 +30,26 @@ export interface FlightSegment {
     arrival: FlightTimestamp;
     durationMinutes: number;
     planeType: string;
+    /** IATA operating carrier code (e.g. "TR"). Empty string when Google did not expose it. */
+    operatingCarrier: string;
+    /** Combined carrier + flight number (e.g. "TR451"). Empty string when unavailable. */
+    flightNumber: string;
+    /** Human legroom string as Google renders it (e.g. "28 in"). */
+    legroom: string;
 }
 export interface Layover {
     durationMinutes: number;
     airportCode: string;
     airportName: string;
     cityName: string;
+    /** True when the onward flight departs from a different airport than the arriving one. */
+    changeOfAirport: boolean;
+}
+export interface CarrierLink {
+    code: string;
+    name: string;
+    /** Carrier-provided URL that Google associates with this flight. May be support/accessibility rather than a direct booking page. */
+    url: string;
 }
 export interface CarbonEmission {
     /** Estimated CO2 emissions for this itinerary, in grams. */
@@ -52,6 +66,10 @@ export interface FlightResult {
     stopCount: number;
     layovers: Layover[];
     carbon: CarbonEmission;
+    /** Opaque token Google re-submits to open the "Select where to book" page. Empty string when not exposed. */
+    bookingToken: string;
+    /** Per-flight carrier links as Google renders them. */
+    carrierLinks: CarrierLink[];
 }
 export interface FlightsSearchResult {
     flights: FlightResult[];

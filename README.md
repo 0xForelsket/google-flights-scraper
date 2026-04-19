@@ -74,11 +74,13 @@ Each `FlightResult` includes:
 
 - price (a numeric amount; Google does not attach a currency code to the payload — pass `currency` on the query if you need a specific one)
 - airline names
-- segment-level departure and arrival data
+- segment-level departure and arrival data, operating carrier code, combined flight number (e.g. `"TR451"`), plane type, and legroom string
 - total duration (minutes)
 - stop count
-- layovers (durations in minutes)
+- layovers (durations in minutes, plus `changeOfAirport` when the onward flight departs from a different airport)
 - carbon emissions (`emission` and `typicalOnRoute` are CO₂ grams)
+- `bookingToken` — opaque token Google uses on its own "Select flights" step (pass-through; may break when Google changes its surface)
+- `carrierLinks` — carrier-provided URLs Google associates with this itinerary (often support/accessibility, not booking)
 
 ## Usage Patterns
 
