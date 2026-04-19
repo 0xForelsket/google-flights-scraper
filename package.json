@@ -12,6 +12,14 @@
     "node",
     "typescript"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xForelsket/google-flights-scraper.git"
+  },
+  "homepage": "https://github.com/0xForelsket/google-flights-scraper#readme",
+  "bugs": {
+    "url": "https://github.com/0xForelsket/google-flights-scraper/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
