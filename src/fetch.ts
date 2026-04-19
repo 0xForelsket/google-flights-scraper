@@ -22,7 +22,10 @@ export interface FetchFlightsOptions {
   replaceHeaders?: boolean;
   /** Abort signal forwarded to the underlying fetch. */
   signal?: AbortSignal;
-  /** Request timeout in milliseconds. Defaults to 30_000. Pass 0 to disable. */
+  /**
+   * Total request timeout in milliseconds, including retry attempts.
+   * Defaults to 30_000. Pass 0 to disable.
+   */
   timeoutMs?: number;
   /** Opt-in retry behavior on transient failures. */
   retry?: RetryOptions;
@@ -135,10 +138,12 @@ async function runWithRetry<T>(
   throw lastError!;
 }
 
-async function attemptFetchHtml(url: string, options: FetchFlightsOptions): Promise<string> {
+async function attemptFetchHtml(
+  url: string,
+  options: FetchFlightsOptions,
+  signal: AbortSignal | undefined
+): Promise<string> {
   const fetchImpl = resolveFetch(options.fetch);
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const signal = combineSignals(options.signal, timeoutMs);
 
   const init: RequestInit = { headers: buildHeaders(options) };
   if (signal) init.signal = signal;
@@ -176,7 +181,9 @@ export async function fetchFlightsHtml(
   options: FetchFlightsOptions = {}
 ): Promise<string> {
   const url = buildSearchUrl(input);
-  return runWithRetry(() => attemptFetchHtml(url, options), options.retry, options.signal);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const totalSignal = combineSignals(options.signal, timeoutMs);
+  return runWithRetry(() => attemptFetchHtml(url, options, totalSignal), options.retry, totalSignal);
 }
 
 export async function fetchFlights(

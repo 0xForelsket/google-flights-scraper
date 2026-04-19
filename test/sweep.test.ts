@@ -69,6 +69,23 @@ describe("sweepFlights", () => {
     expect(callbackEvents.sort()).toEqual([0, 1]);
   });
 
+  it("enforces minDelayMs between query starts even with concurrency > 1", async () => {
+    const queries = Array.from({ length: 6 }, (_, i) => baseQuery(`2026-05-${String(10 + i).padStart(2, "0")}`));
+    const starts: number[] = [];
+    const fetchImpl = makeFetch(async () => {
+      starts.push(Date.now());
+      return new Response(OK_HTML, { status: 200 });
+    });
+
+    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 3, minDelayMs: 30 });
+
+    starts.sort((a, b) => a - b);
+    for (let i = 1; i < starts.length; i++) {
+      const gap = starts[i]! - starts[i - 1]!;
+      expect(gap).toBeGreaterThanOrEqual(25); // 30ms target, 5ms timer jitter tolerance
+    }
+  });
+
   it("respects concurrency cap", async () => {
     const queries = Array.from({ length: 6 }, (_, i) => baseQuery(`2026-05-${String(10 + i).padStart(2, "0")}`));
     let inFlight = 0;

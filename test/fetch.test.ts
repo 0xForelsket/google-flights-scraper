@@ -127,6 +127,29 @@ describe("fetchFlightsHtml", () => {
     expect(calls).toBe(1);
   });
 
+  it("caps total wall time with timeoutMs even across retry attempts", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch((_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        calls++;
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
+      })
+    );
+
+    const started = Date.now();
+    await expect(
+      fetchFlightsHtml(input, {
+        fetch: fetchImpl,
+        timeoutMs: 50,
+        retry: { attempts: 5, baseDelayMs: 1, maxDelayMs: 1 }
+      })
+    ).rejects.toBeInstanceOf(FetchFlightsError);
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(500);
+    expect(calls).toBeLessThanOrEqual(2);
+  });
+
   it("gives up after the max attempts and throws the last error", async () => {
     let calls = 0;
     const fetchImpl = makeFetch(async () => {

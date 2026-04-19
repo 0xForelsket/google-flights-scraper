@@ -94,10 +94,8 @@ async function runWithRetry(fn, retry, signal) {
     }
     throw lastError;
 }
-async function attemptFetchHtml(url, options) {
+async function attemptFetchHtml(url, options, signal) {
     const fetchImpl = resolveFetch(options.fetch);
-    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const signal = combineSignals(options.signal, timeoutMs);
     const init = { headers: buildHeaders(options) };
     if (signal)
         init.signal = signal;
@@ -121,7 +119,9 @@ async function attemptFetchHtml(url, options) {
 }
 export async function fetchFlightsHtml(input, options = {}) {
     const url = buildSearchUrl(input);
-    return runWithRetry(() => attemptFetchHtml(url, options), options.retry, options.signal);
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const totalSignal = combineSignals(options.signal, timeoutMs);
+    return runWithRetry(() => attemptFetchHtml(url, options, totalSignal), options.retry, totalSignal);
 }
 export async function fetchFlights(input, options = {}) {
     const html = await fetchFlightsHtml(input, options);

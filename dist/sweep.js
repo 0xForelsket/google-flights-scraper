@@ -6,7 +6,20 @@ export async function sweepFlights(queries, options = {}) {
     const minDelayMs = Math.max(0, options.minDelayMs ?? 0);
     const results = new Array(queries.length);
     let cursor = 0;
-    let lastStart = 0;
+    let nextSlot = Date.now();
+    const reserveSlot = async () => {
+        if (minDelayMs <= 0)
+            return Date.now();
+        // Atomic reserve (no await between read and write) — workers can't race.
+        const now = Date.now();
+        const myStart = Math.max(now, nextSlot);
+        nextSlot = myStart + minDelayMs;
+        const wait = myStart - now;
+        if (wait > 0) {
+            await new Promise((resolve) => setTimeout(resolve, wait));
+        }
+        return myStart;
+    };
     const worker = async () => {
         while (true) {
             if (options.signal?.aborted)
@@ -14,15 +27,10 @@ export async function sweepFlights(queries, options = {}) {
             const index = cursor++;
             if (index >= queries.length)
                 return;
-            if (minDelayMs > 0) {
-                const wait = lastStart + minDelayMs - Date.now();
-                if (wait > 0) {
-                    await new Promise((resolve) => setTimeout(resolve, wait));
-                }
-            }
-            lastStart = Date.now();
+            const startedAt = await reserveSlot();
+            if (options.signal?.aborted)
+                return;
             const input = queries[index];
-            const startedAt = Date.now();
             const entry = { input, startedAt, finishedAt: 0 };
             try {
                 entry.result = await fetchFlights(input, options);

@@ -20,7 +20,10 @@ export interface FetchFlightsOptions {
     replaceHeaders?: boolean;
     /** Abort signal forwarded to the underlying fetch. */
     signal?: AbortSignal;
-    /** Request timeout in milliseconds. Defaults to 30_000. Pass 0 to disable. */
+    /**
+     * Total request timeout in milliseconds, including retry attempts.
+     * Defaults to 30_000. Pass 0 to disable.
+     */
     timeoutMs?: number;
     /** Opt-in retry behavior on transient failures. */
     retry?: RetryOptions;
