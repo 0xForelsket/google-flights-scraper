@@ -1,0 +1,44 @@
+{
+  "name": "flight-scraper-core",
+  "version": "0.1.0",
+  "description": "A Node.js core library for building and scraping Google Flights search queries.",
+  "license": "MIT",
+  "sideEffects": false,
+  "keywords": [
+    "google-flights",
+    "flights",
+    "scraper",
+    "travel",
+    "node",
+    "typescript"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "npm run build && npm run test",
+    "prepublishOnly": "npm run check",
+    "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
