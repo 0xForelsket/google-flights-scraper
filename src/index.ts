@@ -1,6 +1,7 @@
 export {
   buildSearchUrl,
   createQuery,
+  decodeQuery,
   type EncodedQuery,
   type FlightQueryInput,
   type PassengerCounts,
@@ -26,8 +27,14 @@ export {
 export {
   fetchFlights,
   fetchFlightsHtml,
-  type FetchFlightsOptions
+  type FetchFlightsOptions,
+  type RetryOptions
 } from "./fetch.js";
+export {
+  sweepFlights,
+  type SweepEntry,
+  type SweepOptions
+} from "./sweep.js";
 export {
   FetchFlightsError,
   ParseFlightsError,

@@ -26,50 +26,87 @@ function buildHeaders(options) {
 }
 function combineSignals(user, timeoutMs) {
     if (timeoutMs <= 0) {
-        return { signal: user, cleanup: () => { } };
+        return user;
     }
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     if (!user) {
-        return { signal: timeoutSignal, cleanup: () => { } };
+        return timeoutSignal;
     }
     const controller = new AbortController();
     const onAbort = (reason) => controller.abort(reason);
-    if (user.aborted) {
+    if (user.aborted)
         controller.abort(user.reason);
-    }
-    else {
+    else
         user.addEventListener("abort", () => onAbort(user.reason), { once: true });
-    }
-    if (timeoutSignal.aborted) {
+    if (timeoutSignal.aborted)
         controller.abort(timeoutSignal.reason);
-    }
-    else {
+    else
         timeoutSignal.addEventListener("abort", () => onAbort(timeoutSignal.reason), { once: true });
-    }
-    return {
-        signal: controller.signal,
-        cleanup: () => { }
-    };
+    return controller.signal;
 }
-export async function fetchFlightsHtml(input, options = {}) {
+function defaultShouldRetry(error) {
+    if (error.status === undefined)
+        return true;
+    return error.status === 429 || (error.status >= 500 && error.status < 600);
+}
+async function sleep(ms, signal) {
+    if (ms <= 0)
+        return;
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        if (!signal)
+            return;
+        if (signal.aborted) {
+            clearTimeout(timer);
+            reject(signal.reason);
+            return;
+        }
+        signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+        }, { once: true });
+    });
+}
+async function runWithRetry(fn, retry, signal) {
+    const attempts = Math.max(0, retry?.attempts ?? 0);
+    const baseDelayMs = Math.max(0, retry?.baseDelayMs ?? 500);
+    const maxDelayMs = Math.max(baseDelayMs, retry?.maxDelayMs ?? 10_000);
+    const shouldRetry = retry?.shouldRetry ?? defaultShouldRetry;
+    let lastError;
+    for (let attempt = 0; attempt <= attempts; attempt++) {
+        try {
+            return await fn(attempt);
+        }
+        catch (error) {
+            if (!(error instanceof FetchFlightsError))
+                throw error;
+            lastError = error;
+            if (attempt === attempts)
+                break;
+            if (signal?.aborted)
+                break;
+            if (!shouldRetry(error, attempt + 1))
+                break;
+            const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
+            const jitter = Math.random() * baseDelayMs;
+            await sleep(backoff + jitter, signal);
+        }
+    }
+    throw lastError;
+}
+async function attemptFetchHtml(url, options) {
     const fetchImpl = resolveFetch(options.fetch);
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const { signal, cleanup } = combineSignals(options.signal, timeoutMs);
-    const init = {
-        headers: buildHeaders(options)
-    };
-    if (signal) {
+    const signal = combineSignals(options.signal, timeoutMs);
+    const init = { headers: buildHeaders(options) };
+    if (signal)
         init.signal = signal;
-    }
     let response;
     try {
-        response = await fetchImpl(buildSearchUrl(input), init);
+        response = await fetchImpl(url, init);
     }
     catch (error) {
         throw new FetchFlightsError(`Failed to reach Google Flights: ${error.message ?? String(error)}`, { cause: error });
-    }
-    finally {
-        cleanup();
     }
     if (!response.ok) {
         throw new FetchFlightsError(`Google Flights returned ${response.status} ${response.statusText}.`, { status: response.status });
@@ -81,6 +118,10 @@ export async function fetchFlightsHtml(input, options = {}) {
         });
     }
     return html;
+}
+export async function fetchFlightsHtml(input, options = {}) {
+    const url = buildSearchUrl(input);
+    return runWithRetry(() => attemptFetchHtml(url, options), options.retry, options.signal);
 }
 export async function fetchFlights(input, options = {}) {
     const html = await fetchFlightsHtml(input, options);

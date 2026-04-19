@@ -31,4 +31,14 @@ export interface EncodedQuery {
 }
 export declare function createQuery(input: StructuredQueryInput): EncodedQuery;
 export declare function buildSearchUrl(input: string | StructuredQueryInput | EncodedQuery): string;
+/**
+ * Inverse of `createQuery`. Decodes a base64-encoded `tfs` payload back into a
+ * structured query input. Useful for debugging generated URLs, round-tripping,
+ * and as a structural check against encoder drift.
+ *
+ * `language` and `currency` are not part of the `tfs` payload, so they are not
+ * returned; callers that need them should read the surrounding `hl` / `curr`
+ * query-string parameters.
+ */
+export declare function decodeQuery(tfs: string): StructuredQueryInput;
 //# sourceMappingURL=query.d.ts.map

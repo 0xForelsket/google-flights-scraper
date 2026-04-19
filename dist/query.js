@@ -10,10 +10,21 @@ const SEAT_ENUM = {
     business: 3,
     first: 4
 };
+const SEAT_REVERSE = {
+    1: "economy",
+    2: "premium-economy",
+    3: "business",
+    4: "first"
+};
 const TRIP_ENUM = {
     "round-trip": 1,
     "one-way": 2,
     "multi-city": 3
+};
+const TRIP_REVERSE = {
+    1: "round-trip",
+    2: "one-way",
+    3: "multi-city"
 };
 const PASSENGER_ENUM = {
     adult: 1,
@@ -21,6 +32,7 @@ const PASSENGER_ENUM = {
     infantInSeat: 3,
     infantOnLap: 4
 };
+const TEXT_DECODER = new TextDecoder();
 var WireType;
 (function (WireType) {
     WireType[WireType["Varint"] = 0] = "Varint";
@@ -225,5 +237,181 @@ export function buildSearchUrl(input) {
         return input.url;
     }
     return createQuery(input).url;
+}
+class ProtoReader {
+    bytes;
+    offset = 0;
+    constructor(bytes) {
+        this.bytes = bytes;
+    }
+    hasMore() {
+        return this.offset < this.bytes.length;
+    }
+    readVarint() {
+        let result = 0;
+        let shift = 0;
+        while (true) {
+            if (this.offset >= this.bytes.length) {
+                throw new QueryValidationError("Truncated varint in tfs payload.");
+            }
+            const byte = this.bytes[this.offset++];
+            result |= (byte & 0x7f) << shift;
+            if ((byte & 0x80) === 0)
+                return result >>> 0;
+            shift += 7;
+            if (shift > 28) {
+                throw new QueryValidationError("Varint exceeds 32-bit range in tfs payload.");
+            }
+        }
+    }
+    readTag() {
+        const tag = this.readVarint();
+        return { fieldNumber: tag >>> 3, wireType: tag & 0x7 };
+    }
+    readBytes() {
+        const length = this.readVarint();
+        if (this.offset + length > this.bytes.length) {
+            throw new QueryValidationError("Truncated length-delimited field in tfs payload.");
+        }
+        const out = this.bytes.slice(this.offset, this.offset + length);
+        this.offset += length;
+        return out;
+    }
+    readString() {
+        return TEXT_DECODER.decode(this.readBytes());
+    }
+    skip(wireType) {
+        if (wireType === 0)
+            this.readVarint();
+        else if (wireType === 2)
+            this.readBytes();
+        else if (wireType === 1)
+            this.offset += 8;
+        else if (wireType === 5)
+            this.offset += 4;
+        else
+            throw new QueryValidationError(`Unsupported wire type ${wireType} in tfs payload.`);
+    }
+}
+function decodeAirport(bytes) {
+    const reader = new ProtoReader(bytes);
+    let code = "";
+    while (reader.hasMore()) {
+        const { fieldNumber, wireType } = reader.readTag();
+        if (fieldNumber === 2 && wireType === 2)
+            code = reader.readString();
+        else
+            reader.skip(wireType);
+    }
+    return code;
+}
+function decodeFlight(bytes) {
+    const reader = new ProtoReader(bytes);
+    let date = "";
+    let maxStops;
+    const airlines = [];
+    let fromAirport = "";
+    let toAirport = "";
+    while (reader.hasMore()) {
+        const { fieldNumber, wireType } = reader.readTag();
+        if (fieldNumber === 2 && wireType === 2)
+            date = reader.readString();
+        else if (fieldNumber === 5 && wireType === 0)
+            maxStops = reader.readVarint();
+        else if (fieldNumber === 6 && wireType === 2)
+            airlines.push(reader.readString());
+        else if (fieldNumber === 13 && wireType === 2)
+            fromAirport = decodeAirport(reader.readBytes());
+        else if (fieldNumber === 14 && wireType === 2)
+            toAirport = decodeAirport(reader.readBytes());
+        else
+            reader.skip(wireType);
+    }
+    const flight = { date, fromAirport, toAirport };
+    if (maxStops !== undefined)
+        flight.maxStops = maxStops;
+    if (airlines.length > 0)
+        flight.airlines = airlines;
+    return flight;
+}
+function decodePassengers(bytes) {
+    const reader = new ProtoReader(bytes);
+    let adults = 0;
+    let children = 0;
+    let infantsInSeat = 0;
+    let infantsOnLap = 0;
+    while (reader.hasMore()) {
+        const value = reader.readVarint();
+        if (value === PASSENGER_ENUM.adult)
+            adults++;
+        else if (value === PASSENGER_ENUM.child)
+            children++;
+        else if (value === PASSENGER_ENUM.infantInSeat)
+            infantsInSeat++;
+        else if (value === PASSENGER_ENUM.infantOnLap)
+            infantsOnLap++;
+    }
+    const counts = {};
+    if (adults > 0)
+        counts.adults = adults;
+    if (children > 0)
+        counts.children = children;
+    if (infantsInSeat > 0)
+        counts.infantsInSeat = infantsInSeat;
+    if (infantsOnLap > 0)
+        counts.infantsOnLap = infantsOnLap;
+    return counts;
+}
+/**
+ * Inverse of `createQuery`. Decodes a base64-encoded `tfs` payload back into a
+ * structured query input. Useful for debugging generated URLs, round-tripping,
+ * and as a structural check against encoder drift.
+ *
+ * `language` and `currency` are not part of the `tfs` payload, so they are not
+ * returned; callers that need them should read the surrounding `hl` / `curr`
+ * query-string parameters.
+ */
+export function decodeQuery(tfs) {
+    if (typeof tfs !== "string" || tfs.length === 0) {
+        throw new QueryValidationError("decodeQuery requires a non-empty base64 tfs string.");
+    }
+    let bytes;
+    try {
+        bytes = Uint8Array.from(Buffer.from(tfs, "base64"));
+    }
+    catch (error) {
+        throw new QueryValidationError(`Invalid base64 in tfs: ${error.message ?? String(error)}`, {
+            cause: error
+        });
+    }
+    const reader = new ProtoReader(bytes);
+    const flights = [];
+    let passengers;
+    let seat;
+    let trip;
+    while (reader.hasMore()) {
+        const { fieldNumber, wireType } = reader.readTag();
+        if (fieldNumber === 3 && wireType === 2)
+            flights.push(decodeFlight(reader.readBytes()));
+        else if (fieldNumber === 8 && wireType === 2)
+            passengers = decodePassengers(reader.readBytes());
+        else if (fieldNumber === 9 && wireType === 0)
+            seat = SEAT_REVERSE[reader.readVarint()];
+        else if (fieldNumber === 19 && wireType === 0)
+            trip = TRIP_REVERSE[reader.readVarint()];
+        else
+            reader.skip(wireType);
+    }
+    if (flights.length === 0) {
+        throw new QueryValidationError("Decoded tfs payload contained no flight segments.");
+    }
+    const result = { flights };
+    if (passengers !== undefined)
+        result.passengers = passengers;
+    if (seat !== undefined)
+        result.seat = seat;
+    if (trip !== undefined)
+        result.trip = trip;
+    return result;
 }
 //# sourceMappingURL=query.js.map

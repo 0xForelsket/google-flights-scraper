@@ -2,6 +2,17 @@ import { FetchFlightsError } from "./errors.js";
 import { buildSearchUrl, type EncodedQuery, type StructuredQueryInput } from "./query.js";
 import { parseFlightsHtml, type FlightsSearchResult } from "./parse.js";
 
+export interface RetryOptions {
+  /** Max retry attempts after the initial try. 0 disables retry (default). */
+  attempts?: number;
+  /** Base delay for exponential backoff, in ms. Defaults to 500. */
+  baseDelayMs?: number;
+  /** Upper bound on a single backoff delay, in ms. Defaults to 10_000. */
+  maxDelayMs?: number;
+  /** Decide whether to retry a given error/attempt. Default retries on 429, 5xx, and network errors. */
+  shouldRetry?: (error: FetchFlightsError, attempt: number) => boolean;
+}
+
 export interface FetchFlightsOptions {
   /** Custom fetch implementation (e.g. for proxying, retries, tracing). */
   fetch?: typeof globalThis.fetch;
@@ -13,6 +24,8 @@ export interface FetchFlightsOptions {
   signal?: AbortSignal;
   /** Request timeout in milliseconds. Defaults to 30_000. Pass 0 to disable. */
   timeoutMs?: number;
+  /** Opt-in retry behavior on transient failures. */
+  retry?: RetryOptions;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -44,67 +57,100 @@ function buildHeaders(options: FetchFlightsOptions): HeadersInit {
   return { ...DEFAULT_HEADERS, ...options.headers };
 }
 
-function combineSignals(user: AbortSignal | undefined, timeoutMs: number): {
-  signal: AbortSignal | undefined;
-  cleanup: () => void;
-} {
+function combineSignals(user: AbortSignal | undefined, timeoutMs: number): AbortSignal | undefined {
   if (timeoutMs <= 0) {
-    return { signal: user, cleanup: () => {} };
+    return user;
   }
 
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
 
   if (!user) {
-    return { signal: timeoutSignal, cleanup: () => {} };
+    return timeoutSignal;
   }
 
   const controller = new AbortController();
   const onAbort = (reason: unknown): void => controller.abort(reason);
 
-  if (user.aborted) {
-    controller.abort(user.reason);
-  } else {
-    user.addEventListener("abort", () => onAbort(user.reason), { once: true });
-  }
+  if (user.aborted) controller.abort(user.reason);
+  else user.addEventListener("abort", () => onAbort(user.reason), { once: true });
 
-  if (timeoutSignal.aborted) {
-    controller.abort(timeoutSignal.reason);
-  } else {
-    timeoutSignal.addEventListener("abort", () => onAbort(timeoutSignal.reason), { once: true });
-  }
+  if (timeoutSignal.aborted) controller.abort(timeoutSignal.reason);
+  else timeoutSignal.addEventListener("abort", () => onAbort(timeoutSignal.reason), { once: true });
 
-  return {
-    signal: controller.signal,
-    cleanup: () => {}
-  };
+  return controller.signal;
 }
 
-export async function fetchFlightsHtml(
-  input: string | StructuredQueryInput | EncodedQuery,
-  options: FetchFlightsOptions = {}
-): Promise<string> {
+function defaultShouldRetry(error: FetchFlightsError): boolean {
+  if (error.status === undefined) return true;
+  return error.status === 429 || (error.status >= 500 && error.status < 600);
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    if (signal.aborted) {
+      clearTimeout(timer);
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true }
+    );
+  });
+}
+
+async function runWithRetry<T>(
+  fn: (attempt: number) => Promise<T>,
+  retry: RetryOptions | undefined,
+  signal: AbortSignal | undefined
+): Promise<T> {
+  const attempts = Math.max(0, retry?.attempts ?? 0);
+  const baseDelayMs = Math.max(0, retry?.baseDelayMs ?? 500);
+  const maxDelayMs = Math.max(baseDelayMs, retry?.maxDelayMs ?? 10_000);
+  const shouldRetry = retry?.shouldRetry ?? defaultShouldRetry;
+
+  let lastError: FetchFlightsError | undefined;
+  for (let attempt = 0; attempt <= attempts; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      if (!(error instanceof FetchFlightsError)) throw error;
+      lastError = error;
+      if (attempt === attempts) break;
+      if (signal?.aborted) break;
+      if (!shouldRetry(error, attempt + 1)) break;
+
+      const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
+      const jitter = Math.random() * baseDelayMs;
+      await sleep(backoff + jitter, signal);
+    }
+  }
+  throw lastError!;
+}
+
+async function attemptFetchHtml(url: string, options: FetchFlightsOptions): Promise<string> {
   const fetchImpl = resolveFetch(options.fetch);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const { signal, cleanup } = combineSignals(options.signal, timeoutMs);
+  const signal = combineSignals(options.signal, timeoutMs);
 
-  const init: RequestInit = {
-    headers: buildHeaders(options)
-  };
-
-  if (signal) {
-    init.signal = signal;
-  }
+  const init: RequestInit = { headers: buildHeaders(options) };
+  if (signal) init.signal = signal;
 
   let response: Response;
   try {
-    response = await fetchImpl(buildSearchUrl(input), init);
+    response = await fetchImpl(url, init);
   } catch (error) {
     throw new FetchFlightsError(
       `Failed to reach Google Flights: ${(error as Error).message ?? String(error)}`,
       { cause: error }
     );
-  } finally {
-    cleanup();
   }
 
   if (!response.ok) {
@@ -123,6 +169,14 @@ export async function fetchFlightsHtml(
   }
 
   return html;
+}
+
+export async function fetchFlightsHtml(
+  input: string | StructuredQueryInput | EncodedQuery,
+  options: FetchFlightsOptions = {}
+): Promise<string> {
+  const url = buildSearchUrl(input);
+  return runWithRetry(() => attemptFetchHtml(url, options), options.retry, options.signal);
 }
 
 export async function fetchFlights(

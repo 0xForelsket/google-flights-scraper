@@ -96,4 +96,47 @@ describe("fetchFlightsHtml", () => {
 
     await expect(fetchFlightsHtml(input, { fetch: fetchImpl, timeoutMs: 10 })).rejects.toBeInstanceOf(FetchFlightsError);
   });
+
+  it("retries on 429 and succeeds", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch(async () => {
+      calls++;
+      if (calls < 3) return new Response("nope", { status: 429, statusText: "Too Many Requests" });
+      return new Response("<html>ok</html>", { status: 200 });
+    });
+
+    const html = await fetchFlightsHtml(input, {
+      fetch: fetchImpl,
+      retry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 1 }
+    });
+
+    expect(html).toContain("ok");
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry on 4xx other than 429", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch(async () => {
+      calls++;
+      return new Response("bad", { status: 400, statusText: "Bad Request" });
+    });
+
+    await expect(
+      fetchFlightsHtml(input, { fetch: fetchImpl, retry: { attempts: 3, baseDelayMs: 1 } })
+    ).rejects.toMatchObject({ name: "FetchFlightsError", status: 400 });
+    expect(calls).toBe(1);
+  });
+
+  it("gives up after the max attempts and throws the last error", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch(async () => {
+      calls++;
+      return new Response("nope", { status: 503, statusText: "Service Unavailable" });
+    });
+
+    await expect(
+      fetchFlightsHtml(input, { fetch: fetchImpl, retry: { attempts: 2, baseDelayMs: 1, maxDelayMs: 1 } })
+    ).rejects.toMatchObject({ status: 503 });
+    expect(calls).toBe(3);
+  });
 });

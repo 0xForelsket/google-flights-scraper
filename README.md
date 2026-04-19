@@ -179,6 +179,54 @@ await fetchFlights(query, {
 });
 ```
 
+### Retry on Transient Failures
+
+```ts
+await fetchFlights(query, {
+  retry: {
+    attempts: 3,       // retries after the initial try
+    baseDelayMs: 500,  // exponential backoff with jitter
+    maxDelayMs: 10_000
+    // shouldRetry defaults to retrying on 429, 5xx, and network errors.
+  }
+});
+```
+
+### Sweep a Date Range
+
+```ts
+import { sweepFlights } from "google-flights-scraper";
+
+const queries = dates.map((date) => ({
+  flights: [{ date, fromAirport: "KUL", toAirport: "NRT" }]
+}));
+
+const entries = await sweepFlights(queries, {
+  concurrency: 3,
+  minDelayMs: 250, // polite stagger between requests
+  retry: { attempts: 2, baseDelayMs: 500 },
+  onResult: (entry, index) => {
+    if (entry.result) {
+      const cheapest = entry.result.flights[0]?.price;
+      console.log(queries[index].flights[0].date, cheapest);
+    }
+  }
+});
+```
+
+Each entry is `{ input, result?, error?, startedAt, finishedAt }`. Errors are collected per query; the batch does not abort.
+
+### Decode a `tfs` Query
+
+```ts
+import { decodeQuery } from "google-flights-scraper";
+
+const decoded = decodeQuery("GhoSCjIwMjYtMDUtMTBqBRIDS1VMcgUSA05SVEIBAUgBmAEC");
+// → { flights: [{ date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" }], seat: "economy", trip: "one-way", passengers: { adults: 1 } }
+```
+
+Useful for debugging generated URLs and round-tripping queries between services.
+
 ### Distinguishing Errors
 
 ```ts
@@ -241,6 +289,14 @@ Convenience wrapper for:
 
 1. `fetchFlightsHtml(...)`
 2. `parseFlightsHtml(...)`
+
+### `sweepFlights(queries, options)`
+
+Runs many `fetchFlights` calls with a concurrency cap and optional inter-request delay. Returns a `SweepEntry[]` (same order as `queries`); errors are collected per entry instead of aborting the batch.
+
+### `decodeQuery(tfs)`
+
+Inverse of `createQuery`. Decodes a base64 `tfs` string back into a `StructuredQueryInput`. `language` / `currency` are not recovered (they live in the surrounding query string, not in `tfs`).
 
 ## Query Input
 
