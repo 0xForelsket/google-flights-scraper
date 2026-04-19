@@ -33,11 +33,17 @@ function toTime(value) {
         minute: toNumber(time[1])
     };
 }
+const DS1_MARKERS = ["AF_initDataCallback({key: 'ds:1'", 'AF_initDataCallback({key:"ds:1"'];
+const SCRIPT_TAG = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
 function extractDs1Script(html) {
-    const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
-    for (const match of scripts) {
+    const hasMarker = DS1_MARKERS.some((marker) => html.includes(marker));
+    if (!hasMarker) {
+        throw new ParseFlightsError("Could not find the ds:1 bootstrap payload in the Google Flights HTML.");
+    }
+    SCRIPT_TAG.lastIndex = 0;
+    for (let match = SCRIPT_TAG.exec(html); match !== null; match = SCRIPT_TAG.exec(html)) {
         const script = match[1] ?? "";
-        if (script.includes("AF_initDataCallback({key: 'ds:1'") || script.includes('AF_initDataCallback({key:"ds:1"')) {
+        if (DS1_MARKERS.some((marker) => script.includes(marker))) {
             return script;
         }
     }
@@ -45,13 +51,18 @@ function extractDs1Script(html) {
 }
 function evaluateDs1Script(script) {
     let chunk;
-    runInNewContext(script, {
-        AF_initDataCallback: (value) => {
-            chunk = value;
-        }
-    }, {
-        timeout: 100
-    });
+    try {
+        runInNewContext(script, {
+            AF_initDataCallback: (value) => {
+                chunk = value;
+            }
+        }, {
+            timeout: 100
+        });
+    }
+    catch (error) {
+        throw new ParseFlightsError(`Failed to evaluate the ds:1 script: ${error.message ?? String(error)}`, { cause: error });
+    }
     if (!chunk || !isArray(chunk.data)) {
         throw new ParseFlightsError("The ds:1 script did not expose an array payload.");
     }

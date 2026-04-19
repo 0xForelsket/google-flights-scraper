@@ -72,13 +72,13 @@ type FlightsSearchResult = {
 
 Each `FlightResult` includes:
 
-- price
+- price (a numeric amount; Google does not attach a currency code to the payload — pass `currency` on the query if you need a specific one)
 - airline names
 - segment-level departure and arrival data
-- total duration
+- total duration (minutes)
 - stop count
-- layovers
-- carbon emissions
+- layovers (durations in minutes)
+- carbon emissions (`emission` and `typicalOnRoute` are CO₂ grams)
 
 ## Usage Patterns
 
@@ -162,6 +162,42 @@ const result = await fetchFlights("Flights from KUL to NRT on 2026-05-10", {
 });
 ```
 
+### Custom Headers, Timeout, and Signal
+
+```ts
+await fetchFlights(query, {
+  // Merged on top of the default browser-like header set.
+  headers: { "user-agent": "my-custom-ua/1.0" },
+  // Drop defaults entirely and use only the headers above.
+  replaceHeaders: true,
+  // Override the default 30s timeout. Pass 0 to disable.
+  timeoutMs: 10_000,
+  // Your own abort signal is honored in addition to the timeout.
+  signal: controller.signal
+});
+```
+
+### Distinguishing Errors
+
+```ts
+import { FetchFlightsError, ParseFlightsError, QueryValidationError } from "google-flights-scraper";
+
+try {
+  await fetchFlights(query);
+} catch (error) {
+  if (error instanceof FetchFlightsError) {
+    // error.status holds the HTTP status when the response returned one
+    if (error.status === 429) {
+      // back off
+    }
+  } else if (error instanceof ParseFlightsError) {
+    // Google changed the payload, or we got a non-results page
+  } else if (error instanceof QueryValidationError) {
+    // bad input
+  }
+}
+```
+
 ## Public API
 
 ### `createQuery(input)`
@@ -237,12 +273,17 @@ The package throws typed errors so you can separate bad input from scrape failur
 - `FetchFlightsError`
 - `ParseFlightsError`
 
-## Limitations
+## Limitations & Reliability
 
-- Google Flights can change its markup and payload structure at any time.
+- Google Flights can change its markup and payload structure at any time. Parsing is best-effort and will break when that happens.
 - This package is intentionally server-side. Running it directly in the browser is not a real target.
 - `multi-city` is encoded because Google supports the trip type, but result behavior should still be treated as unstable until it is tested properly.
-- Free-text search depends on Google’s own query interpretation and is less deterministic than structured `tfs` queries.
+- **Free-text search is not equivalent to a structured query.** Google may return a landing/redirect page or an entirely different layout when it can't confidently interpret the string, in which case `parseFlightsHtml` throws `ParseFlightsError`. Prefer `createQuery(...)` whenever you can.
+- Google rate-limits scraping aggressively. For anything beyond occasional queries, plan on proxies, backoff, and caching (the `fetchFlightsHtml` / `parseFlightsHtml` split is there for exactly this).
+
+## Legal
+
+Scraping Google Flights may violate Google's Terms of Service. You are responsible for how you use this library. Verify the applicable terms, obtain data through official channels where possible, and do not use this package to overwhelm Google's infrastructure.
 
 ## Publishing Notes
 

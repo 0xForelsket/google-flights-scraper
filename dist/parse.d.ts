@@ -38,7 +38,9 @@ export interface Layover {
     cityName: string;
 }
 export interface CarbonEmission {
+    /** Estimated CO2 emissions for this itinerary, in grams. */
     emission: number;
+    /** Typical CO2 emissions for this route, in grams. */
     typicalOnRoute: number;
 }
 export interface FlightResult {

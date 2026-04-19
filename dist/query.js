@@ -1,6 +1,9 @@
 import { QueryValidationError } from "./errors.js";
 const GOOGLE_FLIGHTS_SEARCH_URL = "https://www.google.com/travel/flights/search";
 const TEXT_ENCODER = new TextEncoder();
+const IATA_CODE = /^[A-Z]{3}$/;
+const AIRLINE_FILTER = /^[A-Z0-9_]{2,32}$/;
+const MAX_SAFE_VARINT = 2 ** 31 - 1;
 const SEAT_ENUM = {
     economy: 1,
     "premium-economy": 2,
@@ -29,8 +32,8 @@ class ProtoWriter {
         this.writeVarint((fieldNumber << 3) | wireType);
     }
     writeVarint(value) {
-        if (!Number.isInteger(value) || value < 0) {
-            throw new QueryValidationError(`Expected a non-negative integer varint, received ${value}.`);
+        if (!Number.isInteger(value) || value < 0 || value > MAX_SAFE_VARINT) {
+            throw new QueryValidationError(`Expected a non-negative integer varint within 31-bit range, received ${value}.`);
         }
         let remaining = value;
         while (remaining > 0x7f) {
@@ -69,13 +72,23 @@ class ProtoWriter {
 }
 function normalizeAirportCode(value, fieldName) {
     const code = value.trim().toUpperCase();
-    if (code.length < 3) {
-        throw new QueryValidationError(`${fieldName} must be a valid IATA-style airport code.`);
+    if (!IATA_CODE.test(code)) {
+        throw new QueryValidationError(`${fieldName} must be a 3-letter IATA airport code. Received "${value}".`);
+    }
+    return code;
+}
+function normalizeAirlineCode(value) {
+    const code = value.trim().toUpperCase();
+    if (!AIRLINE_FILTER.test(code)) {
+        throw new QueryValidationError(`Airline filter must be an IATA airline code (e.g. "JL") or an alliance identifier (e.g. "STAR_ALLIANCE"). Received "${value}".`);
     }
     return code;
 }
 function normalizeDate(value) {
     if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) {
+            throw new QueryValidationError("Invalid Date passed for flight date.");
+        }
         const year = value.getUTCFullYear();
         const month = String(value.getUTCMonth() + 1).padStart(2, "0");
         const day = String(value.getUTCDate()).padStart(2, "0");
@@ -87,11 +100,36 @@ function normalizeDate(value) {
     }
     return date;
 }
+function normalizeMaxStops(value, fieldName) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!Number.isInteger(value) || value < 0) {
+        throw new QueryValidationError(`${fieldName} must be a non-negative integer. Received ${value}.`);
+    }
+    return value;
+}
+function assertTripMatchesSegments(trip, segmentCount) {
+    if (trip === "one-way" && segmentCount !== 1) {
+        throw new QueryValidationError(`trip "one-way" requires exactly one flight segment (received ${segmentCount}).`);
+    }
+    if (trip === "round-trip" && segmentCount !== 2) {
+        throw new QueryValidationError(`trip "round-trip" requires exactly two flight segments (received ${segmentCount}).`);
+    }
+    if (trip === "multi-city" && segmentCount < 2) {
+        throw new QueryValidationError(`trip "multi-city" requires at least two flight segments (received ${segmentCount}).`);
+    }
+}
 function buildPassengers(counts) {
     const adults = counts?.adults ?? 1;
     const children = counts?.children ?? 0;
     const infantsInSeat = counts?.infantsInSeat ?? 0;
     const infantsOnLap = counts?.infantsOnLap ?? 0;
+    for (const [name, value] of Object.entries({ adults, children, infantsInSeat, infantsOnLap })) {
+        if (!Number.isInteger(value) || value < 0) {
+            throw new QueryValidationError(`Passenger count "${name}" must be a non-negative integer.`);
+        }
+    }
     const total = adults + children + infantsInSeat + infantsOnLap;
     if (total < 1) {
         throw new QueryValidationError("At least one passenger is required.");
@@ -119,13 +157,13 @@ function encodeFlightData(flight, inheritedMaxStops) {
     const date = normalizeDate(flight.date);
     const fromAirport = normalizeAirportCode(flight.fromAirport, "fromAirport");
     const toAirport = normalizeAirportCode(flight.toAirport, "toAirport");
-    const maxStops = flight.maxStops ?? inheritedMaxStops;
+    const maxStops = normalizeMaxStops(flight.maxStops ?? inheritedMaxStops, "maxStops");
     writer.writeString(2, date);
     if (maxStops !== undefined) {
         writer.writeInt32(5, maxStops);
     }
     for (const airline of flight.airlines ?? []) {
-        writer.writeString(6, airline.trim().toUpperCase());
+        writer.writeString(6, normalizeAirlineCode(airline));
     }
     writer.writeMessage(13, encodeAirport(fromAirport));
     writer.writeMessage(14, encodeAirport(toAirport));
@@ -134,14 +172,17 @@ function encodeFlightData(flight, inheritedMaxStops) {
 function encodeInfo(input) {
     const writer = new ProtoWriter();
     const flights = input.flights;
-    if (flights.length < 1) {
+    if (!Array.isArray(flights) || flights.length < 1) {
         throw new QueryValidationError("At least one flight segment is required.");
     }
+    const trip = input.trip ?? "one-way";
+    assertTripMatchesSegments(trip, flights.length);
     const passengers = buildPassengers(input.passengers);
     const seat = SEAT_ENUM[input.seat ?? "economy"];
-    const trip = TRIP_ENUM[input.trip ?? "one-way"];
+    const tripValue = TRIP_ENUM[trip];
+    const inheritedMaxStops = normalizeMaxStops(input.maxStops, "maxStops");
     for (const flight of flights) {
-        writer.writeMessage(3, encodeFlightData(flight, input.maxStops));
+        writer.writeMessage(3, encodeFlightData(flight, inheritedMaxStops));
     }
     if (passengers.length > 0) {
         const passengerWriter = new ProtoWriter();
@@ -151,7 +192,7 @@ function encodeInfo(input) {
         writer.writeMessage(8, passengerWriter.finish());
     }
     writer.writeEnum(9, seat);
-    writer.writeEnum(19, trip);
+    writer.writeEnum(19, tripValue);
     return writer.finish();
 }
 export function createQuery(input) {
@@ -159,11 +200,14 @@ export function createQuery(input) {
     const tfs = Buffer.from(encodedInfo).toString("base64");
     const language = input.language ?? "";
     const currency = input.currency ?? "";
-    const params = new URLSearchParams({
-        tfs,
-        hl: language,
-        curr: currency
-    });
+    const params = new URLSearchParams();
+    params.set("tfs", tfs);
+    if (language !== "") {
+        params.set("hl", language);
+    }
+    if (currency !== "") {
+        params.set("curr", currency);
+    }
     return {
         tfs,
         language,

@@ -50,7 +50,9 @@ export interface Layover {
 }
 
 export interface CarbonEmission {
+  /** Estimated CO2 emissions for this itinerary, in grams. */
   emission: number;
+  /** Typical CO2 emissions for this route, in grams. */
   typicalOnRoute: number;
 }
 
@@ -121,13 +123,20 @@ function toTime(value: unknown): SimpleTime {
   };
 }
 
+const DS1_MARKERS = ["AF_initDataCallback({key: 'ds:1'", 'AF_initDataCallback({key:"ds:1"'];
+const SCRIPT_TAG = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+
 function extractDs1Script(html: string): string {
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
+  const hasMarker = DS1_MARKERS.some((marker) => html.includes(marker));
 
-  for (const match of scripts) {
+  if (!hasMarker) {
+    throw new ParseFlightsError("Could not find the ds:1 bootstrap payload in the Google Flights HTML.");
+  }
+
+  SCRIPT_TAG.lastIndex = 0;
+  for (let match = SCRIPT_TAG.exec(html); match !== null; match = SCRIPT_TAG.exec(html)) {
     const script = match[1] ?? "";
-
-    if (script.includes("AF_initDataCallback({key: 'ds:1'") || script.includes('AF_initDataCallback({key:"ds:1"')) {
+    if (DS1_MARKERS.some((marker) => script.includes(marker))) {
       return script;
     }
   }
@@ -138,13 +147,20 @@ function extractDs1Script(html: string): string {
 function evaluateDs1Script(script: string): unknown[] {
   let chunk: CallbackChunk | undefined;
 
-  runInNewContext(script, {
-    AF_initDataCallback: (value: CallbackChunk) => {
-      chunk = value;
-    }
-  }, {
-    timeout: 100
-  });
+  try {
+    runInNewContext(script, {
+      AF_initDataCallback: (value: CallbackChunk) => {
+        chunk = value;
+      }
+    }, {
+      timeout: 100
+    });
+  } catch (error) {
+    throw new ParseFlightsError(
+      `Failed to evaluate the ds:1 script: ${(error as Error).message ?? String(error)}`,
+      { cause: error }
+    );
+  }
 
   if (!chunk || !isArray(chunk.data)) {
     throw new ParseFlightsError("The ds:1 script did not expose an array payload.");

@@ -1,18 +1,22 @@
 export class QueryValidationError extends Error {
-    constructor(message) {
-        super(message);
+    constructor(message, options) {
+        super(message, options);
         this.name = "QueryValidationError";
     }
 }
 export class FetchFlightsError extends Error {
-    constructor(message) {
-        super(message);
+    status;
+    constructor(message, options) {
+        super(message, options);
         this.name = "FetchFlightsError";
+        if (options?.status !== undefined) {
+            this.status = options.status;
+        }
     }
 }
 export class ParseFlightsError extends Error {
-    constructor(message) {
-        super(message);
+    constructor(message, options) {
+        super(message, options);
         this.name = "ParseFlightsError";
     }
 }
