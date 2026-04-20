@@ -50,7 +50,7 @@ describe("sweepFlights", () => {
 
     expect(results.filter((r) => r.result).length).toBe(2);
     expect(results.filter((r) => r.error).length).toBe(1);
-    expect(results[1]?.error?.name).toBe("FetchFlightsError");
+    expect(results[1]?.error?.name).toBe("HttpError");
   });
 
   it("invokes onResult for each settled query", async () => {

@@ -1,5 +1,5 @@
 import { runInNewContext } from "node:vm";
-import { ParseFlightsError } from "./errors.js";
+import { CaptchaError, ParseFlightsError } from "./errors.js";
 function isArray(value) {
     return Array.isArray(value);
 }
@@ -35,9 +35,21 @@ function toTime(value) {
 }
 const DS1_MARKERS = ["AF_initDataCallback({key: 'ds:1'", 'AF_initDataCallback({key:"ds:1"'];
 const SCRIPT_TAG = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+const CAPTCHA_MARKERS = [
+    "Our systems have detected unusual traffic",
+    "recaptcha",
+    "g-recaptcha",
+    "/sorry/index"
+];
+function looksLikeCaptchaPage(html) {
+    return CAPTCHA_MARKERS.some((marker) => html.includes(marker));
+}
 function extractDs1Script(html) {
     const hasMarker = DS1_MARKERS.some((marker) => html.includes(marker));
     if (!hasMarker) {
+        if (looksLikeCaptchaPage(html)) {
+            throw new CaptchaError("Google returned an anti-bot / CAPTCHA page instead of flight results.");
+        }
         throw new ParseFlightsError("Could not find the ds:1 bootstrap payload in the Google Flights HTML.");
     }
     SCRIPT_TAG.lastIndex = 0;
@@ -192,6 +204,9 @@ function parsePayload(payload) {
     };
 }
 export function parseFlightsHtml(html) {
+    if (looksLikeCaptchaPage(html)) {
+        throw new CaptchaError("Google returned an anti-bot / CAPTCHA page instead of flight results.");
+    }
     const script = extractDs1Script(html);
     const payload = evaluateDs1Script(script);
     return parsePayload(payload);

@@ -230,16 +230,29 @@ Useful for debugging generated URLs and round-tripping queries between services.
 ### Distinguishing Errors
 
 ```ts
-import { FetchFlightsError, ParseFlightsError, QueryValidationError } from "google-flights-scraper";
+import {
+  CaptchaError,
+  FetchFlightsError,
+  HttpError,
+  ParseFlightsError,
+  QueryValidationError,
+  RateLimitError,
+  TimeoutError
+} from "google-flights-scraper";
 
 try {
   await fetchFlights(query);
 } catch (error) {
-  if (error instanceof FetchFlightsError) {
-    // error.status holds the HTTP status when the response returned one
-    if (error.status === 429) {
-      // back off
-    }
+  if (error instanceof RateLimitError) {
+    // 429 from Google
+  } else if (error instanceof TimeoutError) {
+    // total request budget elapsed
+  } else if (error instanceof HttpError) {
+    // non-429 HTTP error
+  } else if (error instanceof CaptchaError) {
+    // Google returned an anti-bot challenge page
+  } else if (error instanceof FetchFlightsError) {
+    // network-level failure
   } else if (error instanceof ParseFlightsError) {
     // Google changed the payload, or we got a non-results page
   } else if (error instanceof QueryValidationError) {
@@ -329,7 +342,11 @@ The package throws typed errors so you can separate bad input from scrape failur
 
 - `QueryValidationError`
 - `FetchFlightsError`
+- `HttpError`
+- `RateLimitError`
+- `TimeoutError`
 - `ParseFlightsError`
+- `CaptchaError`
 
 ## Limitations & Reliability
 

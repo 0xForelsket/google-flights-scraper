@@ -1,4 +1,4 @@
-import { FetchFlightsError } from "./errors.js";
+import { FetchFlightsError, HttpError, RateLimitError, TimeoutError } from "./errors.js";
 import { buildSearchUrl, type EncodedQuery, type StructuredQueryInput } from "./query.js";
 import { parseFlightsHtml, type FlightsSearchResult } from "./parse.js";
 
@@ -40,6 +40,36 @@ const DEFAULT_HEADERS: Record<string, string> = {
   "pragma": "no-cache",
   "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 };
+
+function errorName(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("name" in value)) {
+    return undefined;
+  }
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" ? name : undefined;
+}
+
+function isTimeoutLike(value: unknown): boolean {
+  return errorName(value) === "TimeoutError";
+}
+
+function abortToFetchError(
+  signal: AbortSignal | undefined,
+  cause: unknown,
+  url?: string
+): FetchFlightsError {
+  if (isTimeoutLike(cause) || isTimeoutLike(signal?.reason)) {
+    return new TimeoutError("Google Flights request timed out.", {
+      cause,
+      ...(url === undefined ? {} : { url })
+    });
+  }
+
+  return new FetchFlightsError("Google Flights request was aborted.", {
+    cause,
+    ...(url === undefined ? {} : { url })
+  });
+}
 
 function resolveFetch(fetchImpl?: typeof globalThis.fetch): typeof globalThis.fetch {
   if (fetchImpl) {
@@ -132,7 +162,11 @@ async function runWithRetry<T>(
 
       const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
       const jitter = Math.random() * baseDelayMs;
-      await sleep(backoff + jitter, signal);
+      try {
+        await sleep(backoff + jitter, signal);
+      } catch (sleepError) {
+        throw abortToFetchError(signal, sleepError);
+      }
     }
   }
   throw lastError!;
@@ -152,24 +186,38 @@ async function attemptFetchHtml(
   try {
     response = await fetchImpl(url, init);
   } catch (error) {
+    if (signal?.aborted || isTimeoutLike(error)) {
+      throw abortToFetchError(signal, error, url);
+    }
     throw new FetchFlightsError(
       `Failed to reach Google Flights: ${(error as Error).message ?? String(error)}`,
-      { cause: error }
+      { cause: error, url }
     );
   }
 
   if (!response.ok) {
-    throw new FetchFlightsError(
-      `Google Flights returned ${response.status} ${response.statusText}.`,
-      { status: response.status }
-    );
+    const message = `Google Flights returned ${response.status} ${response.statusText}.`;
+    if (response.status === 429) {
+      throw new RateLimitError(message, {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url || url
+      });
+    }
+    throw new HttpError(message, {
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url || url
+    });
   }
 
   const html = await response.text();
 
   if (html.length === 0) {
     throw new FetchFlightsError("Google Flights returned an empty HTML response.", {
-      status: response.status
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url || url
     });
   }
 

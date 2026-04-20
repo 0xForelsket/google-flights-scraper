@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { fetchFlightsHtml } from "../src/fetch.js";
-import { FetchFlightsError } from "../src/errors.js";
+import { FetchFlightsError, HttpError, RateLimitError, TimeoutError } from "../src/errors.js";
 
 function makeFetch(impl: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>) {
   return impl as typeof globalThis.fetch;
@@ -47,9 +47,15 @@ describe("fetchFlightsHtml", () => {
     const fetchImpl = makeFetch(async () => new Response("nope", { status: 429, statusText: "Too Many Requests" }));
 
     await expect(fetchFlightsHtml(input, { fetch: fetchImpl })).rejects.toMatchObject({
-      name: "FetchFlightsError",
+      name: "RateLimitError",
       status: 429
     });
+  });
+
+  it("throws HttpError for non-429 HTTP failures", async () => {
+    const fetchImpl = makeFetch(async () => new Response("nope", { status: 503, statusText: "Service Unavailable" }));
+
+    await expect(fetchFlightsHtml(input, { fetch: fetchImpl })).rejects.toBeInstanceOf(HttpError);
   });
 
   it("throws FetchFlightsError with cause when fetch throws", async () => {
@@ -94,7 +100,7 @@ describe("fetchFlightsHtml", () => {
       })
     );
 
-    await expect(fetchFlightsHtml(input, { fetch: fetchImpl, timeoutMs: 10 })).rejects.toBeInstanceOf(FetchFlightsError);
+    await expect(fetchFlightsHtml(input, { fetch: fetchImpl, timeoutMs: 10 })).rejects.toBeInstanceOf(TimeoutError);
   });
 
   it("retries on 429 and succeeds", async () => {
@@ -114,6 +120,12 @@ describe("fetchFlightsHtml", () => {
     expect(calls).toBe(3);
   });
 
+  it("returns RateLimitError instances for 429s", async () => {
+    const fetchImpl = makeFetch(async () => new Response("nope", { status: 429, statusText: "Too Many Requests" }));
+
+    await expect(fetchFlightsHtml(input, { fetch: fetchImpl })).rejects.toBeInstanceOf(RateLimitError);
+  });
+
   it("does not retry on 4xx other than 429", async () => {
     let calls = 0;
     const fetchImpl = makeFetch(async () => {
@@ -123,7 +135,7 @@ describe("fetchFlightsHtml", () => {
 
     await expect(
       fetchFlightsHtml(input, { fetch: fetchImpl, retry: { attempts: 3, baseDelayMs: 1 } })
-    ).rejects.toMatchObject({ name: "FetchFlightsError", status: 400 });
+    ).rejects.toMatchObject({ name: "HttpError", status: 400 });
     expect(calls).toBe(1);
   });
 
@@ -143,7 +155,7 @@ describe("fetchFlightsHtml", () => {
         timeoutMs: 50,
         retry: { attempts: 5, baseDelayMs: 1, maxDelayMs: 1 }
       })
-    ).rejects.toBeInstanceOf(FetchFlightsError);
+    ).rejects.toBeInstanceOf(TimeoutError);
     const elapsed = Date.now() - started;
 
     expect(elapsed).toBeLessThan(500);
@@ -161,5 +173,25 @@ describe("fetchFlightsHtml", () => {
       fetchFlightsHtml(input, { fetch: fetchImpl, retry: { attempts: 2, baseDelayMs: 1, maxDelayMs: 1 } })
     ).rejects.toMatchObject({ status: 503 });
     expect(calls).toBe(3);
+  });
+
+  it("wraps aborts during retry backoff as FetchFlightsError", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch(async () => {
+      calls++;
+      return new Response("nope", { status: 503, statusText: "Service Unavailable" });
+    });
+
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new Error("user cancelled")), 5);
+
+    await expect(
+      fetchFlightsHtml(input, {
+        fetch: fetchImpl,
+        signal: controller.signal,
+        retry: { attempts: 3, baseDelayMs: 50, maxDelayMs: 50 }
+      })
+    ).rejects.toBeInstanceOf(FetchFlightsError);
+    expect(calls).toBe(1);
   });
 });

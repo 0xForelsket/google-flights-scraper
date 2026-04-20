@@ -36,7 +36,11 @@ export {
   type SweepOptions
 } from "./sweep.js";
 export {
+  CaptchaError,
   FetchFlightsError,
+  HttpError,
   ParseFlightsError,
-  QueryValidationError
+  QueryValidationError,
+  RateLimitError,
+  TimeoutError
 } from "./errors.js";
