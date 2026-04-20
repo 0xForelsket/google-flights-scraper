@@ -293,7 +293,7 @@ interface FetchFlightsOptions {
     timeoutMs?: number;
     /** Opt-in retry behavior on transient failures. */
     retry?: RetryOptions;
-    /** Which transport to use. `auto` tries HTML first, then RPC for structured queries on parse failure. */
+    /** Which transport to use. Defaults to `auto` for structured queries and `html` for free-text queries. `auto` tries RPC first, then falls back to HTML. */
     transport?: TransportMode;
     /** Per-attempt proxy or proxy resolver. */
     proxy?: ProxyResolver;

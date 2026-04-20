@@ -17,7 +17,11 @@ describe("sweepFlights", () => {
   });
 
   it("returns an empty array for no queries", async () => {
-    const results = await sweepFlights([], { fetch: makeFetch(async () => new Response("")), cache: false });
+    const results = await sweepFlights([], {
+      fetch: makeFetch(async () => new Response("")),
+      cache: false,
+      transport: "html"
+    });
     expect(results).toEqual([]);
   });
 
@@ -29,7 +33,12 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    const results = await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2, cache: false });
+    const results = await sweepFlights(queries, {
+      fetch: fetchImpl,
+      concurrency: 2,
+      cache: false,
+      transport: "html"
+    });
 
     expect(results).toHaveLength(3);
     expect(results.every((entry) => entry.result !== undefined)).toBe(true);
@@ -46,7 +55,12 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    const results = await sweepFlights(queries, { fetch: fetchImpl, concurrency: 1, cache: false });
+    const results = await sweepFlights(queries, {
+      fetch: fetchImpl,
+      concurrency: 1,
+      cache: false,
+      transport: "html"
+    });
 
     expect(results.filter((r) => r.result).length).toBe(2);
     expect(results.filter((r) => r.error).length).toBe(1);
@@ -62,6 +76,7 @@ describe("sweepFlights", () => {
       fetch: fetchImpl,
       concurrency: 1,
       cache: false,
+      transport: "html",
       onResult: (_entry, index) => {
         callbackEvents.push(index);
       }
@@ -78,7 +93,13 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 3, minDelayMs: 30, cache: false });
+    await sweepFlights(queries, {
+      fetch: fetchImpl,
+      concurrency: 3,
+      minDelayMs: 30,
+      cache: false,
+      transport: "html"
+    });
 
     starts.sort((a, b) => a - b);
     for (let i = 1; i < starts.length; i++) {
@@ -99,7 +120,7 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2, cache: false });
+    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2, cache: false, transport: "html" });
     expect(peak).toBeLessThanOrEqual(2);
   });
 
@@ -110,7 +131,12 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    const run = sweepFlights(queries, { fetch: fetchImpl, concurrency: 1, cache: false });
+    const run = sweepFlights(queries, {
+      fetch: fetchImpl,
+      concurrency: 1,
+      cache: false,
+      transport: "html"
+    });
 
     for await (const entry of run) {
       seen.push(entry.input.flights[0]!.date as string);

@@ -68,7 +68,7 @@ export interface FetchFlightsOptions {
   timeoutMs?: number;
   /** Opt-in retry behavior on transient failures. */
   retry?: RetryOptions;
-  /** Which transport to use. `auto` tries HTML first, then RPC for structured queries on parse failure. */
+  /** Which transport to use. Defaults to `auto` for structured queries and `html` for free-text queries. `auto` tries RPC first, then falls back to HTML. */
   transport?: TransportMode;
   /** Per-attempt proxy or proxy resolver. */
   proxy?: ProxyResolver;
@@ -569,7 +569,7 @@ export async function fetchFlights(
   input: string | StructuredQueryInput | EncodedQuery,
   options: FetchFlightsOptions = {}
 ): Promise<FlightsSearchResult> {
-  const transport = options.transport ?? "html";
+  const transport = options.transport ?? (toStructuredInput(input) ? "auto" : "html");
   const structured = toStructuredInput(input);
   const cache = resolveCache(options.cache);
   const cacheKey = buildCacheKey(input, transport);
@@ -584,11 +584,11 @@ export async function fetchFlights(
 
     if (transport === "auto" && structured) {
       try {
-        return await fetchViaHtml(input, options);
+        return await fetchViaRpc(typeof input === "string" ? structured : input, options);
       } catch (error) {
         if (error instanceof ParseFlightsError) {
-          options.onParseError?.({ transport: "html", error });
-          return fetchViaRpc(typeof input === "string" ? structured : input, options);
+          options.onParseError?.({ transport: "rpc", error });
+          return fetchViaHtml(input, options);
         }
         throw error;
       }

@@ -324,14 +324,14 @@ describe("fetchFlightsHtml", () => {
     expect(text).toContain("[[null,null");
   });
 
-  it("falls back to RPC in auto mode when HTML parsing fails", async () => {
+  it("falls back to HTML in auto mode when RPC parsing fails", async () => {
     let calls = 0;
     const fetchImpl = makeFetch(async (url) => {
       calls++;
       if (String(url).includes("GetShoppingResults")) {
-        return new Response(makeRpcEnvelope(), { status: 200 });
+        return new Response(")]}'\n[[null,null,\"not-json\"]]", { status: 200 });
       }
-      return new Response("<html><body>not flights</body></html>", { status: 200 });
+      return new Response(OK_HTML, { status: 200 });
     });
 
     const result = await fetchFlights(structuredInput, {
@@ -341,7 +341,26 @@ describe("fetchFlightsHtml", () => {
     });
 
     expect(calls).toBe(2);
-    expect(result.flights[0]?.bookingToken).toBe("rpc-token");
+    expect(result.flights[0]?.bookingToken).toBeTruthy();
+  });
+
+  it("defaults structured queries to auto transport", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch(async (url) => {
+      calls++;
+      if (String(url).includes("GetShoppingResults")) {
+        return new Response(makeRpcEnvelope("structured-default-token"), { status: 200 });
+      }
+      return new Response("<html><body>not flights</body></html>", { status: 200 });
+    });
+
+    const result = await fetchFlights(structuredInput, {
+      fetch: fetchImpl,
+      cache: false
+    });
+
+    expect(calls).toBe(1);
+    expect(result.flights[0]?.bookingToken).toBe("structured-default-token");
   });
 
   it("dedupes repeated fetches through the session cache", async () => {

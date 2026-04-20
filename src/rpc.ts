@@ -12,11 +12,13 @@ function buildPassengerVector(passengers: PassengerCounts | undefined): [number,
 }
 
 function buildRpcSegment(segment: StructuredQueryInput["flights"][number], inheritedMaxStops?: number): unknown[] {
+  const maxStops = segment.maxStops ?? inheritedMaxStops;
+
   return [
     [[[segment.fromAirport, 0]]],
     [[[segment.toAirport, 0]]],
     null,
-    segment.maxStops ?? inheritedMaxStops ?? 0,
+    maxStops === undefined ? 0 : maxStops + 1,
     segment.airlines ?? null,
     null,
     segment.date instanceof Date ? segment.date.toISOString().slice(0, 10) : segment.date,

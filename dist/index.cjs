@@ -1088,11 +1088,12 @@ function buildPassengerVector(passengers) {
   ];
 }
 function buildRpcSegment(segment, inheritedMaxStops) {
+  const maxStops = segment.maxStops ?? inheritedMaxStops;
   return [
     [[[segment.fromAirport, 0]]],
     [[[segment.toAirport, 0]]],
     null,
-    segment.maxStops ?? inheritedMaxStops ?? 0,
+    maxStops === void 0 ? 0 : maxStops + 1,
     segment.airlines ?? null,
     null,
     segment.date instanceof Date ? segment.date.toISOString().slice(0, 10) : segment.date,
@@ -1547,7 +1548,7 @@ function clearSessionCache() {
   defaultSessionCache.clear();
 }
 async function fetchFlights(input, options = {}) {
-  const transport = options.transport ?? "html";
+  const transport = options.transport ?? (toStructuredInput(input) ? "auto" : "html");
   const structured = toStructuredInput(input);
   const cache = resolveCache(options.cache);
   const cacheKey = buildCacheKey(input, transport);
@@ -1560,11 +1561,11 @@ async function fetchFlights(input, options = {}) {
     }
     if (transport === "auto" && structured) {
       try {
-        return await fetchViaHtml(input, options);
+        return await fetchViaRpc(typeof input === "string" ? structured : input, options);
       } catch (error) {
         if (error instanceof ParseFlightsError) {
-          options.onParseError?.({ transport: "html", error });
-          return fetchViaRpc(typeof input === "string" ? structured : input, options);
+          options.onParseError?.({ transport: "rpc", error });
+          return fetchViaHtml(input, options);
         }
         throw error;
       }

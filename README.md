@@ -50,9 +50,9 @@ const { fetchFlights } = require("google-flights-scraper");
 
 `fetchFlights` accepts `transport`:
 
-- `"html"`: default. Best for CO2, booking tokens, carrier links, flexible-date data, baggage metadata.
+- `"html"`: default for free-text queries. Best for CO2, booking tokens, carrier links, flexible-date data, baggage metadata.
 - `"rpc"`: faster structured-query transport against Google's internal `GetShoppingResults` RPC shape.
-- `"auto"`: try HTML first, then fall back to RPC when HTML parsing fails for structured or encoded queries.
+- `"auto"`: default for structured or encoded queries. Try RPC first, then fall back to HTML when RPC parsing fails.
 
 ```ts
 const result = await fetchFlights(query, { transport: "auto" });
