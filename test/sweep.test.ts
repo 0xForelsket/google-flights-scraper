@@ -17,7 +17,7 @@ describe("sweepFlights", () => {
   });
 
   it("returns an empty array for no queries", async () => {
-    const results = await sweepFlights([], { fetch: makeFetch(async () => new Response("")) });
+    const results = await sweepFlights([], { fetch: makeFetch(async () => new Response("")), cache: false });
     expect(results).toEqual([]);
   });
 
@@ -29,7 +29,7 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    const results = await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2 });
+    const results = await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2, cache: false });
 
     expect(results).toHaveLength(3);
     expect(results.every((entry) => entry.result !== undefined)).toBe(true);
@@ -46,7 +46,7 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    const results = await sweepFlights(queries, { fetch: fetchImpl, concurrency: 1 });
+    const results = await sweepFlights(queries, { fetch: fetchImpl, concurrency: 1, cache: false });
 
     expect(results.filter((r) => r.result).length).toBe(2);
     expect(results.filter((r) => r.error).length).toBe(1);
@@ -61,6 +61,7 @@ describe("sweepFlights", () => {
     await sweepFlights(queries, {
       fetch: fetchImpl,
       concurrency: 1,
+      cache: false,
       onResult: (_entry, index) => {
         callbackEvents.push(index);
       }
@@ -77,7 +78,7 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 3, minDelayMs: 30 });
+    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 3, minDelayMs: 30, cache: false });
 
     starts.sort((a, b) => a - b);
     for (let i = 1; i < starts.length; i++) {
@@ -98,7 +99,23 @@ describe("sweepFlights", () => {
       return new Response(OK_HTML, { status: 200 });
     });
 
-    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2 });
+    await sweepFlights(queries, { fetch: fetchImpl, concurrency: 2, cache: false });
     expect(peak).toBeLessThanOrEqual(2);
+  });
+
+  it("yields settled entries as an async iterable", async () => {
+    const queries = ["2026-05-10", "2026-05-11"].map(baseQuery);
+    const seen: string[] = [];
+    const fetchImpl = makeFetch(async (_url) => {
+      return new Response(OK_HTML, { status: 200 });
+    });
+
+    const run = sweepFlights(queries, { fetch: fetchImpl, concurrency: 1, cache: false });
+
+    for await (const entry of run) {
+      seen.push(entry.input.flights[0]!.date as string);
+    }
+
+    expect(seen).toEqual(["2026-05-10", "2026-05-11"]);
   });
 });

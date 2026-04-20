@@ -1,3 +1,77 @@
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/index.ts
+var index_exports = {};
+__export(index_exports, {
+  CaptchaError: () => CaptchaError,
+  FetchFlightsError: () => FetchFlightsError,
+  HttpError: () => HttpError,
+  ParseFlightsError: () => ParseFlightsError,
+  QueryValidationError: () => QueryValidationError,
+  RateLimitError: () => RateLimitError,
+  SessionCache: () => SessionCache,
+  SweepRun: () => SweepRun,
+  TimeoutError: () => TimeoutError,
+  airlineMetadataSchema: () => airlineMetadataSchema,
+  airportSchema: () => airportSchema,
+  allianceMetadataSchema: () => allianceMetadataSchema,
+  buildSearchUrl: () => buildSearchUrl,
+  carbonEmissionSchema: () => carbonEmissionSchema,
+  carrierLinkSchema: () => carrierLinkSchema,
+  clearSessionCache: () => clearSessionCache,
+  createLocationIndex: () => createLocationIndex,
+  createQuery: () => createQuery,
+  decodeQuery: () => decodeQuery,
+  defaultSessionCache: () => defaultSessionCache,
+  expandLocationCode: () => expandLocationCode,
+  farePolicySchema: () => farePolicySchema,
+  fetchFlights: () => fetchFlights,
+  fetchFlightsHtml: () => fetchFlightsHtml,
+  fetchFlightsRpcText: () => fetchFlightsRpcText,
+  flexibleDateInsightSchema: () => flexibleDateInsightSchema,
+  flexibleDatePricePointSchema: () => flexibleDatePricePointSchema,
+  flightResultSchema: () => flightResultSchema,
+  flightSegmentSchema: () => flightSegmentSchema,
+  flightTimestampSchema: () => flightTimestampSchema,
+  flightsSearchResultSchema: () => flightsSearchResultSchema,
+  layoverSchema: () => layoverSchema,
+  locationMetadataSchema: () => locationMetadataSchema,
+  parseFlightsHtml: () => parseFlightsHtml,
+  parseFlightsPayload: () => parseFlightsPayload,
+  parseRpcResponse: () => parseRpcResponse,
+  simpleDateSchema: () => simpleDateSchema,
+  simpleTimeSchema: () => simpleTimeSchema,
+  sweepFlights: () => sweepFlights
+});
+module.exports = __toCommonJS(index_exports);
+
 // src/errors.ts
 var QueryValidationError = class extends Error {
   constructor(message, options) {
@@ -511,7 +585,7 @@ function decodeQuery(tfs) {
 }
 
 // src/parse.ts
-import { runInNewContext } from "vm";
+var import_node_vm = require("vm");
 function isArray(value) {
   return Array.isArray(value);
 }
@@ -587,7 +661,7 @@ function extractDs1Script(html) {
 function evaluateDs1Script(script) {
   let chunk;
   try {
-    runInNewContext(script, {
+    (0, import_node_vm.runInNewContext)(script, {
       AF_initDataCallback: (value) => {
         chunk = value;
       }
@@ -1644,109 +1718,110 @@ function expandLocationCode(code, locations) {
 }
 
 // src/schemas.ts
-import { z } from "zod";
-var simpleDateSchema = z.object({
-  year: z.number().int(),
-  month: z.number().int(),
-  day: z.number().int()
+var import_zod = require("zod");
+var simpleDateSchema = import_zod.z.object({
+  year: import_zod.z.number().int(),
+  month: import_zod.z.number().int(),
+  day: import_zod.z.number().int()
 });
-var simpleTimeSchema = z.object({
-  hour: z.number().int(),
-  minute: z.number().int()
+var simpleTimeSchema = import_zod.z.object({
+  hour: import_zod.z.number().int(),
+  minute: import_zod.z.number().int()
 });
-var flightTimestampSchema = z.object({
+var flightTimestampSchema = import_zod.z.object({
   date: simpleDateSchema,
   time: simpleTimeSchema
 });
-var airportSchema = z.object({
-  code: z.string(),
-  name: z.string()
+var airportSchema = import_zod.z.object({
+  code: import_zod.z.string(),
+  name: import_zod.z.string()
 });
-var flightSegmentSchema = z.object({
+var flightSegmentSchema = import_zod.z.object({
   fromAirport: airportSchema,
   toAirport: airportSchema,
   departure: flightTimestampSchema,
   arrival: flightTimestampSchema,
-  durationMinutes: z.number().int(),
-  planeType: z.string(),
-  operatingCarrier: z.string(),
-  flightNumber: z.string(),
-  legroom: z.string()
+  durationMinutes: import_zod.z.number().int(),
+  planeType: import_zod.z.string(),
+  operatingCarrier: import_zod.z.string(),
+  flightNumber: import_zod.z.string(),
+  legroom: import_zod.z.string()
 });
-var layoverSchema = z.object({
-  durationMinutes: z.number().int(),
-  airportCode: z.string(),
-  airportName: z.string(),
-  cityName: z.string(),
-  changeOfAirport: z.boolean()
+var layoverSchema = import_zod.z.object({
+  durationMinutes: import_zod.z.number().int(),
+  airportCode: import_zod.z.string(),
+  airportName: import_zod.z.string(),
+  cityName: import_zod.z.string(),
+  changeOfAirport: import_zod.z.boolean()
 });
-var carrierLinkSchema = z.object({
-  code: z.string(),
-  name: z.string(),
-  url: z.string(),
-  type: z.enum(["support", "baggage"]).optional()
+var carrierLinkSchema = import_zod.z.object({
+  code: import_zod.z.string(),
+  name: import_zod.z.string(),
+  url: import_zod.z.string(),
+  type: import_zod.z.enum(["support", "baggage"]).optional()
 });
-var carbonEmissionSchema = z.object({
-  emission: z.number().int(),
-  typicalOnRoute: z.number().int()
+var carbonEmissionSchema = import_zod.z.object({
+  emission: import_zod.z.number().int(),
+  typicalOnRoute: import_zod.z.number().int()
 });
-var farePolicySchema = z.object({
-  refundabilityCode: z.number().int().nullable(),
-  checkedBaggageIncluded: z.boolean().nullable()
+var farePolicySchema = import_zod.z.object({
+  refundabilityCode: import_zod.z.number().int().nullable(),
+  checkedBaggageIncluded: import_zod.z.boolean().nullable()
 });
-var flexibleDatePricePointSchema = z.object({
-  epochMs: z.number().int(),
+var flexibleDatePricePointSchema = import_zod.z.object({
+  epochMs: import_zod.z.number().int(),
   date: simpleDateSchema,
-  price: z.number().int()
+  price: import_zod.z.number().int()
 });
-var flexibleDateInsightSchema = z.object({
-  destinationLabel: z.string(),
-  cheapestPrice: z.number().int().nullable(),
-  highestPrice: z.number().int().nullable(),
-  pricePoints: z.array(flexibleDatePricePointSchema)
+var flexibleDateInsightSchema = import_zod.z.object({
+  destinationLabel: import_zod.z.string(),
+  cheapestPrice: import_zod.z.number().int().nullable(),
+  highestPrice: import_zod.z.number().int().nullable(),
+  pricePoints: import_zod.z.array(flexibleDatePricePointSchema)
 });
-var locationMetadataSchema = z.object({
-  code: z.string(),
-  kind: z.enum(["airport", "city", "place"]),
-  name: z.string(),
-  cityName: z.string(),
-  cityCode: z.string(),
-  countryCode: z.string(),
-  countryName: z.string()
+var locationMetadataSchema = import_zod.z.object({
+  code: import_zod.z.string(),
+  kind: import_zod.z.enum(["airport", "city", "place"]),
+  name: import_zod.z.string(),
+  cityName: import_zod.z.string(),
+  cityCode: import_zod.z.string(),
+  countryCode: import_zod.z.string(),
+  countryName: import_zod.z.string()
 });
-var airlineMetadataSchema = z.object({
-  code: z.string(),
-  name: z.string()
+var airlineMetadataSchema = import_zod.z.object({
+  code: import_zod.z.string(),
+  name: import_zod.z.string()
 });
-var allianceMetadataSchema = z.object({
-  code: z.string(),
-  name: z.string()
+var allianceMetadataSchema = import_zod.z.object({
+  code: import_zod.z.string(),
+  name: import_zod.z.string()
 });
-var flightResultSchema = z.object({
-  type: z.string(),
-  price: z.number().int(),
-  airlines: z.array(z.string()),
-  segments: z.array(flightSegmentSchema),
-  totalDurationMinutes: z.number().int(),
-  stopCount: z.number().int(),
-  layovers: z.array(layoverSchema),
+var flightResultSchema = import_zod.z.object({
+  type: import_zod.z.string(),
+  price: import_zod.z.number().int(),
+  airlines: import_zod.z.array(import_zod.z.string()),
+  segments: import_zod.z.array(flightSegmentSchema),
+  totalDurationMinutes: import_zod.z.number().int(),
+  stopCount: import_zod.z.number().int(),
+  layovers: import_zod.z.array(layoverSchema),
   carbon: carbonEmissionSchema,
   farePolicy: farePolicySchema,
-  bookingToken: z.string(),
-  carrierLinks: z.array(carrierLinkSchema),
-  baggageLinks: z.array(carrierLinkSchema)
+  bookingToken: import_zod.z.string(),
+  carrierLinks: import_zod.z.array(carrierLinkSchema),
+  baggageLinks: import_zod.z.array(carrierLinkSchema)
 });
-var flightsSearchResultSchema = z.object({
-  flights: z.array(flightResultSchema),
-  metadata: z.object({
-    airlines: z.array(airlineMetadataSchema),
-    alliances: z.array(allianceMetadataSchema),
-    baggageLinks: z.array(carrierLinkSchema),
-    locations: z.array(locationMetadataSchema),
+var flightsSearchResultSchema = import_zod.z.object({
+  flights: import_zod.z.array(flightResultSchema),
+  metadata: import_zod.z.object({
+    airlines: import_zod.z.array(airlineMetadataSchema),
+    alliances: import_zod.z.array(allianceMetadataSchema),
+    baggageLinks: import_zod.z.array(carrierLinkSchema),
+    locations: import_zod.z.array(locationMetadataSchema),
     flexibleDateInsight: flexibleDateInsightSchema.nullable()
   })
 });
-export {
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
   CaptchaError,
   FetchFlightsError,
   HttpError,
@@ -1786,5 +1861,5 @@ export {
   simpleDateSchema,
   simpleTimeSchema,
   sweepFlights
-};
-//# sourceMappingURL=index.js.map
+});
+//# sourceMappingURL=index.cjs.map

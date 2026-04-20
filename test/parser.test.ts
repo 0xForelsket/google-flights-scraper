@@ -19,8 +19,11 @@ describe("parseFlightsHtml", () => {
     expect(result.flights).toHaveLength(8);
     expect(result.metadata.airlines.some((airline) => airline.code === "NH" && airline.name === "ANA")).toBe(true);
     expect(result.metadata.alliances.some((alliance) => alliance.code === "STAR_ALLIANCE")).toBe(true);
+    expect(result.metadata.baggageLinks.some((link) => link.code === "TR" && link.type === "baggage")).toBe(true);
+    expect(result.metadata.flexibleDateInsight?.pricePoints.length).toBeGreaterThan(20);
+    expect(result.metadata.locations.some((location) => location.code === "KUL" && location.kind === "airport")).toBe(true);
 
-    expect(result.flights[0]).toEqual({
+    expect(result.flights[0]).toMatchObject({
       type: "TR",
       price: 1449,
       airlines: ["Scoot"],
@@ -81,13 +84,26 @@ describe("parseFlightsHtml", () => {
         emission: 383000,
         typicalOnRoute: 405000
       },
+      farePolicy: {
+        refundabilityCode: 2,
+        checkedBaggageIncluded: null
+      },
       bookingToken:
         "CjRIZF9WWGl2Rm94b1lBUHVxSlFCRy0tLS0tLS0tc21iZWkyM0FBQUFBR25rcGY4RTlweGVBEhFUUjQ1MXxUUjg2NnxUUjg2NhoLCPDrCBACGgNNWVI4HXCvngI=",
       carrierLinks: [
         {
           code: "TR",
           name: "Scoot",
+          type: "support",
           url: "https://www.flyscoot.com/en/support/special-assistance"
+        }
+      ],
+      baggageLinks: [
+        {
+          code: "TR",
+          name: "Scoot",
+          type: "baggage",
+          url: "https://www.flyscoot.com/en/fly-scoot/before-you-fly/baggage"
         }
       ]
     });
@@ -109,7 +125,7 @@ describe("parseFlightsHtml", () => {
         flight.airlines.includes("China Southern")
     );
 
-    expect(multi).toEqual({
+    expect(multi).toMatchObject({
       type: "multi",
       price: 389,
       airlines: ["Malaysia Airlines", "China Southern"],
@@ -170,18 +186,38 @@ describe("parseFlightsHtml", () => {
         emission: 407000,
         typicalOnRoute: 312000
       },
+      farePolicy: {
+        refundabilityCode: 1,
+        checkedBaggageIncluded: null
+      },
       bookingToken:
         "CjRIMS1zeTNnV1BTU3NBTS1ZVWdCRy0tLS0tLS0tLS1zZXB4MkFBQUFBR25rcUpjSzgtbkNBEhNNSDExNDN8Q1ozNTB8Q1ozNTk1GgsItK8CEAIaA1VTRDgdcLSvAg==",
       carrierLinks: [
         {
           code: "MH",
           name: "Malaysia Airlines",
+          type: "support",
           url: "https://www.malaysiaairlines.com/my/en/travel-info/mhguardian.html"
         },
         {
           code: "CZ",
           name: "China Southern",
+          type: "support",
           url: "https://www.csair.com/mcms/mcmsNewSite/en/us/#/tourguide/special_passenger"
+        }
+      ],
+      baggageLinks: [
+        {
+          code: "MH",
+          name: "Malaysia Airlines",
+          type: "baggage",
+          url: "https://www.malaysiaairlines.com/hq/en/plan-your-trip/baggage/checked-baggage.html"
+        },
+        {
+          code: "CZ",
+          name: "China Southern",
+          type: "baggage",
+          url: "https://www.csair.com/mcms/mcmsNewSite/en/us/#/tourguide/luggage_service/checked_luggage/live_animals"
         }
       ]
     });

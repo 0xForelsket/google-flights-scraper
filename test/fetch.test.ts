@@ -1,14 +1,111 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import { fetchFlightsHtml } from "../src/fetch.js";
+import { clearSessionCache, fetchFlights, fetchFlightsHtml, fetchFlightsRpcText } from "../src/fetch.js";
 import { FetchFlightsError, HttpError, RateLimitError, TimeoutError } from "../src/errors.js";
 
 function makeFetch(impl: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>) {
   return impl as typeof globalThis.fetch;
 }
 
+const ds1Script = readFileSync(new URL("./fixtures/kul-nrt-ds1.js", import.meta.url), "utf8");
+const OK_HTML = `<html><body><script>${ds1Script}</script></body></html>`;
+
+function makeRpcEnvelope(bookingToken = "rpc-token"): string {
+  const payload = [
+    null,
+    null,
+    [],
+    [[
+      [
+        [
+          "TR",
+          ["Scoot"],
+          [[
+            null,
+            null,
+            null,
+            "KUL",
+            "Kuala Lumpur International Airport",
+            "Narita International Airport",
+            "NRT",
+            null,
+            [7, 15],
+            null,
+            [15, 25],
+            430,
+            [null, 1, null, null, null, null, null, null, null, 1, null, 3],
+            1,
+            "31 in",
+            null,
+            1,
+            "Boeing 787",
+            null,
+            0,
+            [2026, 5, 10],
+            [2026, 5, 10],
+            ["TR", "451", null, "Scoot"],
+            null,
+            null,
+            1,
+            null,
+            null,
+            null,
+            null,
+            "31 inches",
+            364871,
+            1
+          ]],
+          "KUL",
+          [2026, 5, 10],
+          [7, 15],
+          "NRT",
+          [2026, 5, 10],
+          [15, 25],
+          430,
+          null,
+          null,
+          0,
+          null,
+          null,
+          null,
+          null,
+          "token",
+          [[1, 2, 3], null, null, null, null, [[1]]],
+          1,
+          null,
+          null,
+          [null, null, 1, -10, null, 1, 1, 365000, 405000, [1], 383000, 2, 0, null, null, 1, null, 1],
+          [1],
+          [["TR", "Scoot", "https://www.flyscoot.com/en/support/special-assistance"]]
+        ],
+        [[null, 1449], bookingToken],
+        null,
+        0,
+        [],
+        [],
+        0,
+        []
+      ]
+    ]],
+    [[
+      [["ONEWORLD", "Oneworld"]],
+      [["TR", "Scoot"]]
+    ]]
+  ];
+
+  return `)]}'\n${JSON.stringify([[null, null, JSON.stringify(payload)]])}`;
+}
+
 describe("fetchFlightsHtml", () => {
   const input = "Flights from KUL to NRT on 2026-05-10";
+  const structuredInput = {
+    flights: [{ date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" }],
+    language: "en-US",
+    currency: "USD",
+    region: "MY"
+  } as const;
 
   it("merges default headers with user-supplied headers", async () => {
     let observed: Headers | undefined;
@@ -193,5 +290,118 @@ describe("fetchFlightsHtml", () => {
       })
     ).rejects.toBeInstanceOf(FetchFlightsError);
     expect(calls).toBe(1);
+  });
+
+  it("can fetch via RPC transport for structured queries", async () => {
+    let observedUrl = "";
+    let observedBody = "";
+    const fetchImpl = makeFetch(async (url, init) => {
+      observedUrl = String(url);
+      observedBody = String(init?.body ?? "");
+      return new Response(makeRpcEnvelope(), { status: 200 });
+    });
+
+    const result = await fetchFlights(structuredInput, {
+      fetch: fetchImpl,
+      transport: "rpc",
+      cache: false
+    });
+
+    expect(observedUrl).toContain("GetShoppingResults");
+    expect(observedUrl).toContain("hl=en-US");
+    expect(observedUrl).toContain("curr=USD");
+    expect(observedUrl).toContain("gl=MY");
+    expect(observedBody).toContain("f.req=");
+    expect(result.flights[0]?.bookingToken).toBe("rpc-token");
+  });
+
+  it("can fetch raw RPC text", async () => {
+    const fetchImpl = makeFetch(async () => new Response(")]}'\n[[null,null,\"[]\"]]", { status: 200 }));
+    const text = await fetchFlightsRpcText(structuredInput, {
+      fetch: fetchImpl,
+      cache: false
+    });
+    expect(text).toContain("[[null,null");
+  });
+
+  it("falls back to RPC in auto mode when HTML parsing fails", async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch(async (url) => {
+      calls++;
+      if (String(url).includes("GetShoppingResults")) {
+        return new Response(makeRpcEnvelope(), { status: 200 });
+      }
+      return new Response("<html><body>not flights</body></html>", { status: 200 });
+    });
+
+    const result = await fetchFlights(structuredInput, {
+      fetch: fetchImpl,
+      transport: "auto",
+      cache: false
+    });
+
+    expect(calls).toBe(2);
+    expect(result.flights[0]?.bookingToken).toBe("rpc-token");
+  });
+
+  it("dedupes repeated fetches through the session cache", async () => {
+    clearSessionCache();
+    let calls = 0;
+    const fetchImpl = makeFetch(async () => {
+      calls++;
+      return new Response("<html><body>no scripts</body></html>", { status: 200 });
+    });
+
+    const promise1 = fetchFlights("Flights from KUL to NRT on 2026-05-10", {
+      fetch: fetchImpl,
+      cache: true,
+      transport: "html"
+    }).catch(() => null);
+    const promise2 = fetchFlights("Flights from KUL to NRT on 2026-05-10", {
+      fetch: fetchImpl,
+      cache: true,
+      transport: "html"
+    }).catch(() => null);
+
+    await Promise.all([promise1, promise2]);
+    expect(calls).toBe(1);
+    clearSessionCache();
+  });
+
+  it("emits telemetry callbacks", async () => {
+    const requests: string[] = [];
+    const responses: number[] = [];
+    const parseErrors: string[] = [];
+    const fetchImpl = makeFetch(async () => new Response("<html><body>not flights</body></html>", { status: 200 }));
+
+    await expect(
+      fetchFlights("Flights from KUL to NRT on 2026-05-10", {
+        fetch: fetchImpl,
+        cache: false,
+        onRequest: (event) => requests.push(`${event.transport}:${event.url}`),
+        onResponse: (event) => responses.push(event.status),
+        onParseError: (event) => parseErrors.push(event.transport)
+      })
+    ).rejects.toBeDefined();
+
+    expect(requests).toHaveLength(1);
+    expect(responses).toEqual([200]);
+    expect(parseErrors).toEqual(["html"]);
+  });
+
+  it("post-filters results by departure time", async () => {
+    const fetchImpl = makeFetch(async () => new Response(OK_HTML, { status: 200 }));
+
+    const result = await fetchFlights({
+      flights: [{ date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" }],
+      filters: {
+        departureTime: { earliest: "23:59" }
+      }
+    }, {
+      fetch: fetchImpl,
+      cache: false
+    });
+
+    expect(result.flights).toHaveLength(0);
   });
 });

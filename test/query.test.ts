@@ -43,6 +43,15 @@ describe("createQuery", () => {
     expect(query.url.includes("curr=USD")).toBe(true);
   });
 
+  it("includes gl when region is provided", () => {
+    const query = createQuery({
+      flights: [{ date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" }],
+      region: "MY"
+    });
+
+    expect(query.url.includes("gl=MY")).toBe(true);
+  });
+
   it("encodes round-trip with two segments (golden)", () => {
     const query = createQuery({
       flights: [
@@ -225,6 +234,26 @@ describe("createQuery", () => {
         passengers: { adults: 1, infantsOnLap: 2 }
       })
     ).toThrow(/adult per infant/);
+  });
+
+  it("validates post-search filter shapes", () => {
+    expect(() =>
+      createQuery({
+        flights: [{ date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" }],
+        filters: {
+          departureTime: { earliest: "25:00" }
+        }
+      })
+    ).toThrow(QueryValidationError);
+
+    expect(() =>
+      createQuery({
+        flights: [{ date: "2026-05-10", fromAirport: "KUL", toAirport: "NRT" }],
+        filters: {
+          layover: { minMinutes: 120, maxMinutes: 60 }
+        }
+      })
+    ).toThrow(QueryValidationError);
   });
 });
 

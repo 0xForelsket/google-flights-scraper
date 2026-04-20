@@ -3,6 +3,28 @@ import { QueryValidationError } from "./errors.js";
 export type SeatType = "economy" | "premium-economy" | "business" | "first";
 export type TripType = "round-trip" | "one-way" | "multi-city";
 
+export interface TimeWindow {
+  earliest?: string;
+  latest?: string;
+}
+
+export interface LayoverFilter {
+  minMinutes?: number;
+  maxMinutes?: number;
+}
+
+export interface ConnectionAirportFilter {
+  allow?: string[];
+  block?: string[];
+}
+
+export interface PostSearchFilters {
+  departureTime?: TimeWindow;
+  arrivalTime?: TimeWindow;
+  layover?: LayoverFilter;
+  connectionAirports?: ConnectionAirportFilter;
+}
+
 export interface FlightQueryInput {
   date: string | Date;
   fromAirport: string;
@@ -25,13 +47,16 @@ export interface StructuredQueryInput {
   passengers?: PassengerCounts;
   language?: string;
   currency?: string;
+  region?: string;
   maxStops?: number;
+  filters?: PostSearchFilters;
 }
 
 export interface EncodedQuery {
   tfs: string;
   language: string;
   currency: string;
+  region: string;
   params: URLSearchParams;
   url: string;
 }
@@ -145,7 +170,7 @@ function normalizeAirportCode(value: string, fieldName: string): string {
 
   if (!IATA_CODE.test(code)) {
     throw new QueryValidationError(
-      `${fieldName} must be a 3-letter IATA airport code. Received "${value}".`
+      `${fieldName} must be a 3-letter IATA airport or city/metro code. Received "${value}".`
     );
   }
 
@@ -162,6 +187,98 @@ function normalizeAirlineCode(value: string): string {
   }
 
   return code;
+}
+
+function normalizeCodeList(values: string[] | undefined, fieldName: string): string[] | undefined {
+  if (!values || values.length === 0) {
+    return undefined;
+  }
+
+  return values.map((value) => normalizeAirportCode(value, fieldName));
+}
+
+function normalizeTimeWindow(window: TimeWindow | undefined, fieldName: string): TimeWindow | undefined {
+  if (!window) {
+    return undefined;
+  }
+
+  const normalized: TimeWindow = {};
+
+  for (const [key, value] of Object.entries(window) as Array<[keyof TimeWindow, string | undefined]>) {
+    if (value === undefined) {
+      continue;
+    }
+
+    const trimmed = value.trim();
+    if (!/^\d{2}:\d{2}$/.test(trimmed)) {
+      throw new QueryValidationError(`${fieldName}.${key} must use HH:MM 24-hour format. Received "${value}".`);
+    }
+
+    const [hourText, minuteText] = trimmed.split(":");
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      throw new QueryValidationError(`${fieldName}.${key} must be a valid 24-hour time. Received "${value}".`);
+    }
+
+    normalized[key] = trimmed;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeLayoverFilter(filter: LayoverFilter | undefined): LayoverFilter | undefined {
+  if (!filter) {
+    return undefined;
+  }
+
+  const normalized: LayoverFilter = {};
+
+  for (const [key, value] of Object.entries(filter) as Array<[keyof LayoverFilter, number | undefined]>) {
+    if (value === undefined) {
+      continue;
+    }
+    if (!Number.isInteger(value) || value < 0) {
+      throw new QueryValidationError(`filters.layover.${key} must be a non-negative integer. Received ${value}.`);
+    }
+    normalized[key] = value;
+  }
+
+  if (
+    normalized.minMinutes !== undefined &&
+    normalized.maxMinutes !== undefined &&
+    normalized.minMinutes > normalized.maxMinutes
+  ) {
+    throw new QueryValidationError("filters.layover.minMinutes cannot exceed filters.layover.maxMinutes.");
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeFilters(filters: PostSearchFilters | undefined): PostSearchFilters | undefined {
+  if (!filters) {
+    return undefined;
+  }
+
+  const normalized: PostSearchFilters = {};
+
+  const departureTime = normalizeTimeWindow(filters.departureTime, "filters.departureTime");
+  const arrivalTime = normalizeTimeWindow(filters.arrivalTime, "filters.arrivalTime");
+  const layover = normalizeLayoverFilter(filters.layover);
+  const allow = normalizeCodeList(filters.connectionAirports?.allow, "filters.connectionAirports.allow");
+  const block = normalizeCodeList(filters.connectionAirports?.block, "filters.connectionAirports.block");
+
+  if (departureTime) normalized.departureTime = departureTime;
+  if (arrivalTime) normalized.arrivalTime = arrivalTime;
+  if (layover) normalized.layover = layover;
+  if (allow || block) {
+    normalized.connectionAirports = {};
+    if (allow) normalized.connectionAirports.allow = allow;
+    if (block) normalized.connectionAirports.block = block;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function normalizeDate(value: string | Date): string {
@@ -318,6 +435,8 @@ export function createQuery(input: StructuredQueryInput): EncodedQuery {
   const tfs = Buffer.from(encodedInfo).toString("base64");
   const language = input.language ?? "";
   const currency = input.currency ?? "";
+  const region = input.region ?? "";
+  void normalizeFilters(input.filters);
   const params = new URLSearchParams();
   params.set("tfs", tfs);
   if (language !== "") {
@@ -326,11 +445,15 @@ export function createQuery(input: StructuredQueryInput): EncodedQuery {
   if (currency !== "") {
     params.set("curr", currency);
   }
+  if (region !== "") {
+    params.set("gl", region);
+  }
 
   return {
     tfs,
     language,
     currency,
+    region,
     params,
     url: `${GOOGLE_FLIGHTS_SEARCH_URL}?${params.toString()}`
   };

@@ -57,11 +57,14 @@ export interface Layover {
   changeOfAirport: boolean;
 }
 
+export type CarrierResourceType = "support" | "baggage";
+
 export interface CarrierLink {
   code: string;
   name: string;
   /** Carrier-provided URL that Google associates with this flight. May be support/accessibility rather than a direct booking page. */
   url: string;
+  type?: CarrierResourceType;
 }
 
 export interface CarbonEmission {
@@ -69,6 +72,41 @@ export interface CarbonEmission {
   emission: number;
   /** Typical CO2 emissions for this route, in grams. */
   typicalOnRoute: number;
+}
+
+export interface FarePolicy {
+  /**
+   * Best-effort refundability hint from Google's internal payload.
+   * Google does not expose a stable human label here.
+   */
+  refundabilityCode: number | null;
+  /**
+   * Best-effort checked-baggage hint. `null` means Google did not expose one.
+   */
+  checkedBaggageIncluded: boolean | null;
+}
+
+export interface FlexibleDatePricePoint {
+  epochMs: number;
+  date: SimpleDate;
+  price: number;
+}
+
+export interface FlexibleDateInsight {
+  destinationLabel: string;
+  cheapestPrice: number | null;
+  highestPrice: number | null;
+  pricePoints: FlexibleDatePricePoint[];
+}
+
+export interface LocationMetadata {
+  code: string;
+  kind: "airport" | "city" | "place";
+  name: string;
+  cityName: string;
+  cityCode: string;
+  countryCode: string;
+  countryName: string;
 }
 
 export interface FlightResult {
@@ -80,10 +118,13 @@ export interface FlightResult {
   stopCount: number;
   layovers: Layover[];
   carbon: CarbonEmission;
+  farePolicy: FarePolicy;
   /** Opaque token Google re-submits to open the "Select where to book" page. Empty string when not exposed. */
   bookingToken: string;
   /** Per-flight carrier links as Google renders them. */
   carrierLinks: CarrierLink[];
+  /** Matched from top-level carrier baggage metadata when possible. */
+  baggageLinks: CarrierLink[];
 }
 
 export interface FlightsSearchResult {
@@ -91,6 +132,9 @@ export interface FlightsSearchResult {
   metadata: {
     airlines: AirlineMetadata[];
     alliances: AllianceMetadata[];
+    baggageLinks: CarrierLink[];
+    locations: LocationMetadata[];
+    flexibleDateInsight: FlexibleDateInsight | null;
   };
 }
 
@@ -105,6 +149,10 @@ function isArray(value: unknown): value is unknown[] {
 
 function toNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function toString(value: unknown, fallback = ""): string {
@@ -139,6 +187,15 @@ function toTime(value: unknown): SimpleTime {
   return {
     hour: toNumber(time[0]),
     minute: toNumber(time[1])
+  };
+}
+
+function epochMsToDate(epochMs: number): SimpleDate {
+  const date = new Date(epochMs);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate()
   };
 }
 
@@ -249,7 +306,7 @@ function parseLayover(rawLayover: unknown): Layover {
   };
 }
 
-function parseCarrierLink(rawEntry: unknown): CarrierLink | null {
+function parseCarrierLink(rawEntry: unknown, type?: CarrierResourceType): CarrierLink | null {
   const entry = isArray(rawEntry) ? rawEntry : [];
   const code = toString(entry[0]);
 
@@ -257,49 +314,95 @@ function parseCarrierLink(rawEntry: unknown): CarrierLink | null {
     return null;
   }
 
-  return {
+  const link: CarrierLink = {
     code,
     name: toString(entry[1]),
     url: toString(entry[2])
   };
+
+  if (type) {
+    link.type = type;
+  }
+
+  return link;
 }
 
-function parseFlightResult(rawItem: unknown): FlightResult | null {
-  const item = isArray(rawItem) ? rawItem : [];
-  const flight = isArray(item[0]) ? item[0] : null;
-
-  if (!flight) {
-    return null;
-  }
-
-  const pricing = isArray(item[1]) ? item[1] : [];
-  const price = readPrice(item[1]);
-  const bookingToken = toString(pricing[1]);
-  const segments = isArray(flight[2]) ? flight[2].map(parseSegment) : [];
-  const layovers = isArray(flight[13]) ? flight[13].map(parseLayover) : [];
-  const extras = isArray(flight[22]) ? flight[22] : [];
-  const carrierLinks = (isArray(flight[24]) ? flight[24] : [])
-    .map(parseCarrierLink)
-    .filter((entry): entry is CarrierLink => entry !== null);
-
-  if (price === null || segments.length === 0) {
-    return null;
-  }
+function parseFarePolicy(extras: unknown[]): FarePolicy {
+  const baggageHint = isArray(extras[9]) ? extras[9] : null;
 
   return {
-    type: toString(flight[0]),
-    price,
-    airlines: toStringArray(flight[1]),
-    segments,
-    totalDurationMinutes: toNumber(flight[9]),
-    stopCount: toNumber(flight[10]),
-    layovers,
-    carbon: {
-      emission: toNumber(extras[7]),
-      typicalOnRoute: toNumber(extras[8])
-    },
-    bookingToken,
-    carrierLinks
+    refundabilityCode: toNullableNumber(extras[15]),
+    checkedBaggageIncluded: baggageHint === null ? null : baggageHint.some((value) => toNumber(value) > 0)
+  };
+}
+
+function parseLocationRow(rawRow: unknown): LocationMetadata | null {
+  const row = isArray(rawRow) ? rawRow : [];
+  const codeRoot = isArray(row[0]) ? row[0] : [];
+  const info = isArray(row[2]) ? row[2] : [];
+  const rowCode = toString(codeRoot[0]);
+  const rowType = toNumber(codeRoot[1], 0);
+  const countryCode = toString(row[4]);
+  const countryName = toString(row[6]);
+  const cityName = toString(info[1], toString(row[1]));
+  const cityCode = toString(info[5], rowCode);
+
+  if (rowCode === "" && cityCode === "") {
+    return null;
+  }
+
+  const code = rowCode !== "" && !rowCode.startsWith("/") ? rowCode : cityCode;
+  const kind: LocationMetadata["kind"] = rowCode.startsWith("/")
+    ? "city"
+    : rowType === 0
+      ? "airport"
+      : "place";
+
+  return {
+    code,
+    kind,
+    name: toString(row[1], cityName || code),
+    cityName,
+    cityCode,
+    countryCode,
+    countryName
+  };
+}
+
+function parseFlexibleDateInsight(payload: unknown[]): FlexibleDateInsight | null {
+  const insightRoot = isArray(payload[5]) ? payload[5] : [];
+  const rawPoints = isArray(insightRoot[10]) && isArray(insightRoot[10][0]) ? insightRoot[10][0] : [];
+  const destinationLabel = toString(insightRoot[12]);
+
+  const pricePoints = rawPoints
+    .filter(isArray)
+    .map((point) => {
+      const epochMs = toNumber(point[0]);
+      const price = toNumber(point[1]);
+
+      if (epochMs <= 0 || price <= 0) {
+        return null;
+      }
+
+      return {
+        epochMs,
+        date: epochMsToDate(epochMs),
+        price
+      };
+    })
+    .filter((point): point is FlexibleDatePricePoint => point !== null);
+
+  if (pricePoints.length === 0) {
+    return null;
+  }
+
+  const prices = pricePoints.map((point) => point.price);
+
+  return {
+    destinationLabel,
+    cheapestPrice: Math.min(...prices),
+    highestPrice: Math.max(...prices),
+    pricePoints
   };
 }
 
@@ -308,6 +411,8 @@ function parseMetadata(payload: unknown[]): FlightsSearchResult["metadata"] {
   const carrierRoot = isArray(metadataRoot[1]) ? metadataRoot[1] : [];
   const allianceRows = isArray(carrierRoot[0]) ? carrierRoot[0] : [];
   const airlineRows = isArray(carrierRoot[1]) ? carrierRoot[1] : [];
+  const baggageRows = isArray(payload[11]) ? payload[11] : [];
+  const locationRows = isArray(payload[17]) ? payload[17] : [];
 
   return {
     alliances: allianceRows
@@ -323,21 +428,164 @@ function parseMetadata(payload: unknown[]): FlightsSearchResult["metadata"] {
         code: toString(row[0]),
         name: toString(row[1])
       }))
-      .filter((row) => row.code !== "" && row.name !== "")
+      .filter((row) => row.code !== "" && row.name !== ""),
+    baggageLinks: baggageRows
+      .map((row) => parseCarrierLink(row, "baggage"))
+      .filter((row): row is CarrierLink => row !== null),
+    locations: locationRows
+      .map(parseLocationRow)
+      .filter((row): row is LocationMetadata => row !== null),
+    flexibleDateInsight: parseFlexibleDateInsight(payload)
   };
 }
 
-function parsePayload(payload: unknown[]): FlightsSearchResult {
-  const flightsRoot = isArray(payload[3]) ? payload[3] : [];
-  const rawFlights = isArray(flightsRoot[0]) ? flightsRoot[0] : [];
-  const flights = rawFlights
-    .map(parseFlightResult)
-    .filter((flight): flight is FlightResult => flight !== null);
+function buildBaggageLinkMap(links: CarrierLink[]): Map<string, CarrierLink[]> {
+  const map = new Map<string, CarrierLink[]>();
+
+  for (const link of links) {
+    const current = map.get(link.code) ?? [];
+    current.push(link);
+    map.set(link.code, current);
+  }
+
+  return map;
+}
+
+function parseFlightResult(rawItem: unknown, baggageLinksByCode: Map<string, CarrierLink[]>): FlightResult | null {
+  const item = isArray(rawItem) ? rawItem : [];
+  const flight = isArray(item[0]) ? item[0] : null;
+
+  if (!flight) {
+    return null;
+  }
+
+  const pricing = isArray(item[1]) ? item[1] : [];
+  const price = readPrice(item[1]);
+  const bookingToken = toString(pricing[1]);
+  const segments = isArray(flight[2]) ? flight[2].map(parseSegment) : [];
+  const layovers = isArray(flight[13]) ? flight[13].map(parseLayover) : [];
+  const extras = isArray(flight[22]) ? flight[22] : [];
+  const carrierLinks = (isArray(flight[24]) ? flight[24] : [])
+    .map((entry) => parseCarrierLink(entry, "support"))
+    .filter((entry): entry is CarrierLink => entry !== null);
+
+  if (price === null || segments.length === 0) {
+    return null;
+  }
+
+  const airlineCodes = new Set<string>();
+  for (const segment of segments) {
+    if (segment.operatingCarrier !== "") {
+      airlineCodes.add(segment.operatingCarrier);
+    }
+  }
+
+  const baggageLinks = Array.from(airlineCodes)
+    .flatMap((code) => baggageLinksByCode.get(code) ?? []);
+
+  return {
+    type: toString(flight[0]),
+    price,
+    airlines: toStringArray(flight[1]),
+    segments,
+    totalDurationMinutes: toNumber(flight[9]),
+    stopCount: toNumber(flight[10]),
+    layovers,
+    carbon: {
+      emission: toNumber(extras[7]),
+      typicalOnRoute: toNumber(extras[8])
+    },
+    farePolicy: parseFarePolicy(extras),
+    bookingToken,
+    carrierLinks,
+    baggageLinks
+  };
+}
+
+function collectFlightSections(payload: unknown[], includeSecondarySection: boolean): unknown[] {
+  const sections = [payload[3], ...(includeSecondarySection ? [payload[2]] : [])]
+    .filter(isArray)
+    .flatMap((section) => (isArray(section[0]) ? section[0] : []));
+
+  return sections;
+}
+
+function dedupeFlights(flights: FlightResult[]): FlightResult[] {
+  const seen = new Set<string>();
+  const deduped: FlightResult[] = [];
+
+  for (const flight of flights) {
+    const key = flight.bookingToken !== ""
+      ? `token:${flight.bookingToken}`
+      : `segments:${flight.segments.map((segment) => `${segment.flightNumber}:${segment.departure.date.year}-${segment.departure.date.month}-${segment.departure.date.day}:${segment.departure.time.hour}:${segment.departure.time.minute}`).join("|")}:${flight.price}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(flight);
+  }
+
+  return deduped;
+}
+
+export function parseFlightsPayload(payload: unknown[], options: { includeSecondarySection?: boolean } = {}): FlightsSearchResult {
+  if (!isArray(payload)) {
+    throw new ParseFlightsError("Expected Google Flights payload to be an array.");
+  }
+
+  const metadata = parseMetadata(payload);
+  const baggageLinksByCode = buildBaggageLinkMap(metadata.baggageLinks);
+  const flights = dedupeFlights(
+    collectFlightSections(payload, options.includeSecondarySection ?? false)
+      .map((rawItem) => parseFlightResult(rawItem, baggageLinksByCode))
+      .filter((flight): flight is FlightResult => flight !== null)
+  );
 
   return {
     flights,
-    metadata: parseMetadata(payload)
+    metadata
   };
+}
+
+export function parseRpcResponse(text: string): FlightsSearchResult {
+  const stripped = text.replace(/^\)\]\}'?\s*/, "");
+
+  if (stripped.trim() === "") {
+    throw new ParseFlightsError("Google Flights returned an empty RPC response.");
+  }
+
+  let outer: unknown;
+  try {
+    outer = JSON.parse(stripped);
+  } catch (error) {
+    throw new ParseFlightsError(
+      `Failed to parse Google Flights RPC envelope: ${(error as Error).message ?? String(error)}`,
+      { cause: error }
+    );
+  }
+
+  const innerJson = isArray(outer) && isArray(outer[0]) ? outer[0][2] : undefined;
+  if (typeof innerJson !== "string") {
+    throw new ParseFlightsError("Google Flights RPC response did not contain flight data at [0][2].");
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(innerJson);
+  } catch (error) {
+    throw new ParseFlightsError(
+      `Failed to parse Google Flights RPC payload: ${(error as Error).message ?? String(error)}`,
+      { cause: error }
+    );
+  }
+
+  if (!isArray(payload)) {
+    throw new ParseFlightsError("Google Flights RPC payload was not an array.");
+  }
+
+  return parseFlightsPayload(payload, { includeSecondarySection: true });
 }
 
 export function parseFlightsHtml(html: string): FlightsSearchResult {
@@ -346,5 +594,5 @@ export function parseFlightsHtml(html: string): FlightsSearchResult {
   }
   const script = extractDs1Script(html);
   const payload = evaluateDs1Script(script);
-  return parsePayload(payload);
+  return parseFlightsPayload(payload);
 }
